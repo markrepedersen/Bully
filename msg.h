@@ -5,8 +5,6 @@
 
 #define MAX_NODES 9
 
-
-
 /* The following enum defines the types of messages that can be
    sent. The only unusual ones are IAA and AYA which stand for I AM
    Aive and Are You Alive, respectively.  Regular nodes are to
@@ -25,24 +23,23 @@
 */
 
 enum msgKind {
-        ELECT = 10,
-        ANSWER = 11,
-        COORD = 12,
-        AYA = 20,
-        IAA = 21,
+  ELECT = 10,
+  ANSWER = 11,
+  COORD = 12,
+  AYA = 20,
+  IAA = 21,
 
 };
 typedef enum msgKind msgType;
 
-
 /* A clock value consists of the node number (i.e. a node's port
-   number) and the clock value. 
+   number) and the clock value.
 */
 
-struct clock {
+typedef struct clock {
   unsigned int nodeId;
   unsigned int time;
-};
+} vectorClock;
 
 /* This is the message sent between nodes. Simply fill this structure
    and send it. So that we don't commit that distributed systems sin
@@ -68,11 +65,10 @@ struct clock {
    electionID value from the AYA request.)
 */
 
-struct msg {
-  msgType        msgID;
-  unsigned int   electionID;
-  struct clock   vectorClock[MAX_NODES];
-};
-  
+typedef struct msg {
+  msgType msgID;
+  unsigned int electionID;
+  vectorClock vectorClock[MAX_NODES];
+} message;
 
-#endif 
+#endif
