@@ -33,6 +33,11 @@ typedef struct node {
     struct node *prev;
 } Node;
 
+typedef struct coordinator {
+    unsigned long port;
+    char *hostname;
+} Coordinator;
+
 void usage(char *cmd) {
     printf("usage: %s  portNum groupFileList logFile timeoutValue averageAYATime "
 	   "failureProbability \n",
@@ -174,7 +179,7 @@ void getRandomNumber(unsigned long AYATime) {
     }
 }
 
-int getAddress(char *hostname, char *service, struct addrinfo *serverAddr) {
+int getAddress(Node *node, struct addrinfo *serverAddr) {
     struct addrinfo hints;
 
     memset(&hints, 0, sizeof(hints));
@@ -183,7 +188,7 @@ int getAddress(char *hostname, char *service, struct addrinfo *serverAddr) {
     hints.ai_family = AF_INET;
     hints.ai_protocol = IPPROTO_UDP;
     
-    if (getaddrinfo(hostname, service, &hints, &serverAddr)) {
+    if (getaddrinfo(node->hostname, (char*) node->id, &hints, &serverAddr)) {
 	perror("Couldn't lookup hostname\n");
 	return -1;
     }
@@ -243,7 +248,7 @@ void sendAYA(vectorClock *nodeTimes, int sockfd, char *coordinatorHostname, char
 
 // Return 0 if this node is designated the coordinator, 1 otherwise.
 // coordinatorId will be set to the new coordinator's ID at the end.
-int election(unsigned long *coordinatorId, Node *nodes, vectorClock *nodeTimes, int sockfd, unsigned long currentId) {
+int election(Node *coord, Node *nodes, vectorClock *nodeTimes, int sockfd, unsigned long currentId) {
     int isCoord = 0;
     unsigned long electionId = (unsigned long) rand();
     Node *currentNode = nodes;
@@ -254,7 +259,7 @@ int election(unsigned long *coordinatorId, Node *nodes, vectorClock *nodeTimes, 
 	if (currentNode->id > currentId) {
 	    message msg;
 	    struct addrinfo *serverAddr = NULL;
-	    getAddress(currentNode->hostname, (char*) currentNode->id, serverAddr);
+	    getAddress(currentNode, serverAddr);
 	    createMessage(&msg, electionId, ELECT, nodeTimes);
 	    sendMessage(&msg, currentNode->hostname, sockfd, (char*) currentNode->id, serverAddr);
 	    count++;
@@ -288,14 +293,14 @@ int election(unsigned long *coordinatorId, Node *nodes, vectorClock *nodeTimes, 
     } else return 0;
 }
 
-int sendAYAAndRespond(int sockfd, char *coordinatorHostname, char *port, struct addrinfo *serverAddr, vectorClock *nodeTimes) {
+int sendAYAAndRespond(int sockfd, char* socketPort, Node *node, struct addrinfo *serverAddr, vectorClock *nodeTimes) {
     message msg;
     
     // Send an initial AYA message to coordinator to start off the process.
-    sendAYA(nodeTimes, sockfd, coordinatorHostname, port, serverAddr);
+    sendAYA(nodeTimes, sockfd, node->hostname, (char*) node->id, serverAddr);
 	
     // Now wait for an IAA message.
-    if (receiveMessage(sockfd, (unsigned long) port, (void *)&msg) == -1) {
+    if (receiveMessage(sockfd, (unsigned long) socketPort, (void *) &msg) == -1) {
 	// IAA not received before <timeout> seconds -> call election.
 	printf("Failed to receive IAA.\n");
 	return -1;
@@ -402,16 +407,18 @@ int main(int argc, char **argv) {
 
     message response;
 
-    char *coordinatorHostname = "localhost";
-    unsigned long coordinatorId;
+    Node coord;
+    coord.hostname = NULL;
     
     while (1) {
 	if (!isCoordinator()) {
-	    getAddress(coordinatorHostname, argv[1], serverAddr);
+	    if (coord.hostname != NULL) {
+		getAddress(&coord, serverAddr);
+	    }
 
-	    if (sendAYAAndRespond(sockfd, coordinatorHostname, argv[1], serverAddr, nodeTimes) < 0) {
-		// AYA timed out -> call election.
-		election(&coordinatorId, nodes, nodeTimes, sockfd, port);
+	    if (serverAddr == NULL || sendAYAAndRespond(sockfd, argv[1], &coord, serverAddr, nodeTimes) < 0) {
+		// Either AYA timed out or coordinator is not known yet -> call election.
+		election(&coord, nodes, nodeTimes, sockfd, port);
 	    }
 	} else {
 	    coordinate(sockfd, nodeTimes);
