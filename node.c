@@ -49,7 +49,6 @@ int validatePort(Node *nodes, unsigned long port) {
 	}
 	curr = curr->next;
     }
-
     return hasPort;
 }
 
@@ -69,8 +68,8 @@ Node *readGroupListFile(char *fileName) {
     while ((read = getline(&line, &len, fp)) != -1) {
 	numNodes++;
 
-	char *id = strtok(line, " ");
-	char *hostname = strtok(NULL, line);
+	char *hostname = strtok(line, " ");
+	char *id = strtok(NULL, line);
 
 	Node *curr = malloc(sizeof(Node));
 
@@ -128,14 +127,14 @@ void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof tv);
 }
 
-int receiveMessage(int sockfd, char *buf) {
+int receiveMessage(int sockfd, unsigned long port, char *buf) {
     struct sockaddr_in client;
     int len;
 
     memset(&client, 0, sizeof(client));
-    //  client.sin_family = AF_INET;
-    // client.sin_port = htons(port);
-    // client.sin_addr.s_addr = INADDR_ANY;
+    client.sin_family = AF_INET;
+    client.sin_port = htons(port);
+    client.sin_addr.s_addr = INADDR_ANY;
 
     int n;
     n = recvfrom(sockfd, buf, 100, MSG_WAITALL, (struct sockaddr *)&client,
@@ -175,20 +174,24 @@ void getRandomNumber(unsigned long AYATime) {
     }
 }
 
-int sendMessage(message *msg, char *hostname, int sockfd, char *service,
-                struct addrinfo *serverAddr) {
+int getAddress(char *hostname, char *service, struct addrinfo *serverAddr) {
     struct addrinfo hints;
 
     memset(&hints, 0, sizeof(hints));
+    
     hints.ai_socktype = SOCK_DGRAM;
     hints.ai_family = AF_INET;
     hints.ai_protocol = IPPROTO_UDP;
-
+    
     if (getaddrinfo(hostname, service, &hints, &serverAddr)) {
-	printf("Couldn't lookup hostname\n");
+	perror("Couldn't lookup hostname\n");
 	return -1;
     }
+    return 0;
+}
 
+int sendMessage(message *msg, char *hostname, int sockfd, char *service,
+                struct addrinfo *serverAddr) {
     // Send the message to ourselves
     int bytesSent;
     bytesSent = sendto(sockfd, msg, sizeof(msg), MSG_CONFIRM, serverAddr->ai_addr,
@@ -217,25 +220,25 @@ void initVectorClock(vectorClock *nodeTimes, int numClocks, Node *node) {
     }
 }
 
-int isCoordinator() {
-    return 1; 
-}
-
-void coordinate(int sockfd, message response, char *coordinatorHostname, char *port, struct addrinfo *serverAddr, vectorClock *nodeTimes) {
-    
-}
-
 void createMessage(message *msg, unsigned long electionId,  msgType type, vectorClock *nodeTimes) {
     msg->electionID = electionId;
     msg->msgID = type;
     memcpy(msg->vectorClock, nodeTimes, sizeof(*nodeTimes) * MAX_NODES);
 }
 
+int isCoordinator() {
+    return 0; 
+}
+
+void coordinate(int sockfd, vectorClock *nodeTimes) {
+
+}
+
 void sendAYA(vectorClock *nodeTimes, int sockfd, char *coordinatorHostname, char *port, struct addrinfo *serverAddr) {
     message msg;
-    createMessage(&msg, htonl(port), AYA, nodeTimes);
+    createMessage(&msg, (unsigned long) port, AYA, nodeTimes);
     sendMessage(&msg, coordinatorHostname, sockfd, port, serverAddr);
-    printf("Sent AYA [%ul, %ul] to %s", msg.electionID, msg.msgID, coordinatorHostname);
+    printf("Sent AYA [%ul, %ul] to %s\n", msg.electionID, msg.msgID, coordinatorHostname);
 }
 
 void callElection(vectorClock *nodeTimes, int sockfd, char *coordinatorHostname, char *port, struct addrinfo *serverAddr) {
@@ -244,18 +247,23 @@ void callElection(vectorClock *nodeTimes, int sockfd, char *coordinatorHostname,
     sendMessage(&msg, coordinatorHostname, sockfd, port, serverAddr);    
 }
 
-void sendAYAAndRespond(int sockfd, message response, char *coordinatorHostname, char *port, struct addrinfo *serverAddr, vectorClock *nodeTimes) {
+int sendAYAAndRespond(int sockfd, char *coordinatorHostname, char *port, struct addrinfo *serverAddr, vectorClock *nodeTimes) {
+    message msg;
+    
     // Send an initial AYA message to coordinator to start off the process.
     sendAYA(nodeTimes, sockfd, coordinatorHostname, port, serverAddr);
 	
     // Now wait for an IAA message.
-    if (receiveMessage(sockfd, (void *)&response) == -1) {
+    if (receiveMessage(sockfd, (unsigned long) port, (void *)&msg) == -1) {
 	// IAA not received before <timeout> seconds -> call election.
-	callElection(nodeTimes, sockfd, coordinatorHostname, port, serverAddr);
+	printf("Failed to receive IAA.\n");
+	return -1;
     } else {
 	// IAA message was received.
-	printf("Received IAA [%ul, %ul].", response.electionID, response.msgID);
+	printf("Received IAA [%ul, %ul].\n", msg.electionID, msg.msgID);
+	sleep(1000);
     }
+    return 0;
 }
 
 int main(int argc, char **argv) {
@@ -315,11 +323,11 @@ int main(int argc, char **argv) {
     printf("Timeout value:            %lu\n", timeoutValue);
     printf("AYATime:                  %lu\n", AYATime);
     printf("Send failure probability: %lu\n", sendFailureProbability);
-    printf("Some examples of how to format data for shiviz\n");
-    printf("Starting up Node %lu\n", port);
-    printf("N%lu {\"N%lu\" : %lu }\n", port, port, myClock++);
-    printf("Sending to Node 1\n");
-    printf("N%lu {\"N%lu\" : %lu }\n", port, port, myClock++);
+    /* printf("Some examples of how to format data for shiviz\n"); */
+    /* printf("Starting up Node %lu\n", port); */
+    /* printf("N%lu {\"N%lu\" : %lu }\n", port, port, myClock++); */
+    /* printf("Sending to Node 1\n"); */
+    /* printf("N%lu {\"N%lu\" : %lu }\n", port, port, myClock++); */
 
     if (err) {
 	printf("%d conversion error%sencountered, program exiting.\n", err,
@@ -330,8 +338,10 @@ int main(int argc, char **argv) {
     Node *nodes = NULL;
     if (strcmp(groupListFileName, "-") == 0) {
 	// Group list will be specified by stdin.
+	printf("Group list specified by command line.\n");
     } else {
 	// Process group list file
+	printf("Reading group list...\n");
 	nodes = readGroupListFile(groupListFileName);
     }
 
@@ -352,13 +362,19 @@ int main(int argc, char **argv) {
     message response;
 
     char *coordinatorHostname = "localhost";
-    unsigned long coordinatorId = 0;
+    unsigned long coordinatorId;
     
     while (1) {
 	if (!isCoordinator()) {
-	    sendAYAAndRespond(sockfd, response, coordinatorHostname, argv[1], serverAddr, nodeTimes);
+	    getAddress(coordinatorHostname, argv[1], serverAddr);
+
+	    if (sendAYAAndRespond(sockfd, coordinatorHostname, argv[1], serverAddr, nodeTimes) < 0) {
+		continue;
+		// AYA timed out -> call election.
+		callElection(nodeTimes, sockfd, coordinatorHostname, argv[1], serverAddr);		
+	    }
 	} else {
-	    coordinate(sockfd, response, coordinatorHostname, argv[1], serverAddr, nodeTimes);
+	    coordinate(sockfd, nodeTimes);
 	}
     }
 
