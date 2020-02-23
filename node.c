@@ -217,8 +217,7 @@ int getAddress(Node *node, struct addrinfo *serverAddr)
     return 0;
 }
 
-int sendMessage(message *msg, char *hostname, int sockfd, char *service,
-                struct addrinfo *serverAddr)
+int sendMessage(message *msg, int sockfd, struct addrinfo *serverAddr)
 {
     // Send the message to ourselves
     int bytesSent;
@@ -272,7 +271,7 @@ void sendAYA(vectorClock *nodeTimes, int sockfd, char *coordinatorHostname, char
 {
     message msg;
     createMessage(&msg, (unsigned long)port, AYA, nodeTimes);
-    sendMessage(&msg, coordinatorHostname, sockfd, port, serverAddr);
+    sendMessage(&msg, sockfd, serverAddr);
     printf("Sent AYA [%ul, %ul] to %s\n", msg.electionID, msg.msgID, coordinatorHostname);
 }
 
@@ -294,7 +293,7 @@ int election(Node *coord, Node *nodes, vectorClock *nodeTimes, int sockfd, unsig
             struct addrinfo *serverAddr = NULL;
             getAddress(currentNode, serverAddr);
             createMessage(&msg, electionId, ELECT, nodeTimes);
-            sendMessage(&msg, currentNode->hostname, sockfd, (char *)currentNode->id, serverAddr);
+            sendMessage(&msg, sockfd, serverAddr);
             count++;
         }
     }
