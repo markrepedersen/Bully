@@ -241,10 +241,51 @@ void sendAYA(vectorClock *nodeTimes, int sockfd, char *coordinatorHostname, char
     printf("Sent AYA [%ul, %ul] to %s\n", msg.electionID, msg.msgID, coordinatorHostname);
 }
 
-void callElection(vectorClock *nodeTimes, int sockfd, char *coordinatorHostname, char *port, struct addrinfo *serverAddr) {
-    message msg;
-    createMessage(&msg, rand(), ELECT, nodeTimes);
-    sendMessage(&msg, coordinatorHostname, sockfd, port, serverAddr);    
+// Return 0 if this node is designated the coordinator, 1 otherwise.
+// coordinatorId will be set to the new coordinator's ID at the end.
+int election(unsigned long *coordinatorId, Node *nodes, vectorClock *nodeTimes, int sockfd, unsigned long currentId) {
+    int isCoord = 0;
+    unsigned long electionId = (unsigned long) rand();
+    Node *currentNode = nodes;
+    int count = 0;
+    
+    // Send message to all nodes that have an ID > than the current node's ID.
+    while (currentNode != NULL) {
+	if (currentNode->id > currentId) {
+	    message msg;
+	    struct addrinfo *serverAddr = NULL;
+	    getAddress(currentNode->hostname, (char*) currentNode->id, serverAddr);
+	    createMessage(&msg, electionId, ELECT, nodeTimes);
+	    sendMessage(&msg, currentNode->hostname, sockfd, (char*) currentNode->id, serverAddr);
+	    count++;
+	}
+    }
+
+    // Wait for ANSWER message from all the nodes above.
+    // TODO: check if messages are from correct nodes.
+    while (count > 0) {
+	message response;
+	receiveMessage(sockfd, currentId, (void*) &response);
+
+	if (response.msgID == ANSWER) {
+	    
+	} else if (response.msgID == ELECT) {
+	    
+	}
+	count--;
+    }
+
+    if (!isCoord) {
+	// Wait for COORD message to determine who is the new coordinator.
+	message response;
+	while (1) {
+	    // TODO: If COORD message not received in <timeout> amount of time, restart election.
+	    receiveMessage(sockfd, currentId, (void*) &response);
+	    if (response.msgID == COORD) {
+		return 1;   
+	    }   
+	}
+    } else return 0;
 }
 
 int sendAYAAndRespond(int sockfd, char *coordinatorHostname, char *port, struct addrinfo *serverAddr, vectorClock *nodeTimes) {
@@ -369,9 +410,8 @@ int main(int argc, char **argv) {
 	    getAddress(coordinatorHostname, argv[1], serverAddr);
 
 	    if (sendAYAAndRespond(sockfd, coordinatorHostname, argv[1], serverAddr, nodeTimes) < 0) {
-		continue;
 		// AYA timed out -> call election.
-		callElection(nodeTimes, sockfd, coordinatorHostname, argv[1], serverAddr);		
+		election(&coordinatorId, nodes, nodeTimes, sockfd, port);
 	    }
 	} else {
 	    coordinate(sockfd, nodeTimes);
