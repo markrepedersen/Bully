@@ -206,7 +206,7 @@ void getRandomNumber(unsigned long AYATime) {
   }
 }
 
-int getAddress(Node *node, struct addrinfo *serverAddr) {
+int getAddress(Node *node, struct addrinfo **serverAddr) {
   struct addrinfo hints;
 
   memset(&hints, 0, sizeof(hints));
@@ -215,9 +215,9 @@ int getAddress(Node *node, struct addrinfo *serverAddr) {
 
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_family = AF_INET;
-  hints.ai_protocol = IPPROTO_UDP;
+  // hints.ai_protocol = IPPROTO_UDP;
 
-  if (getaddrinfo(node->hostname, portBuf, &hints, &serverAddr)) {
+  if (getaddrinfo(node->hostname, portBuf, &hints, serverAddr)) {
     perror("Couldn't lookup hostname\n");
     return -1;
   }
@@ -270,7 +270,7 @@ void coordinate() {
   struct addrinfo *serverAddr = NULL;
   Node node;
 
-  getAddress(&node, serverAddr);
+  getAddress(&node, &serverAddr);
   createMessage(&response, response.electionID, IAA);
   sendMessage(&response, serverAddr);
 }
@@ -294,10 +294,10 @@ int election(Node *coord) {
   while (currentNode != NULL) {
     if (currentNode->id > myNode.id) {
       message msg;
-      struct addrinfo serverAddr;
+      struct addrinfo *serverAddr;
       getAddress(currentNode, &serverAddr);
       createMessage(&msg, electionId, ELECT);
-      sendMessage(&msg, &serverAddr);
+      sendMessage(&msg, serverAddr);
     }
     currentNode = currentNode->next;
   }
@@ -448,7 +448,7 @@ int main(int argc, char **argv) {
       perror("Invalid socket binding: ");
       exit(EXIT_FAILURE);
   }
-  
+
   setSocketTimeout(sockfd, timeoutValue);
 
   struct addrinfo *serverAddr = NULL;
@@ -471,7 +471,7 @@ int main(int argc, char **argv) {
       if (coord.id != -1)
       // The coordinator is known.
       {
-        getAddress(&coord, serverAddr);
+        getAddress(&coord, &serverAddr);
       }
 
       if (serverAddr == NULL || sendAYAAndRespond(&coord, serverAddr) < 0) {
