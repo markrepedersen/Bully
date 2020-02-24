@@ -45,6 +45,7 @@ static Node coord = {-1};
 static int myIndex;
 static FILE *logFile;
 static vectorClock nodeTimes[MAX_NODES];
+static int isCoord = 1;
 
 void logEvent(char *description) {
   ++(nodeTimes[myIndex].time);
@@ -206,28 +207,34 @@ void getRandomNumber(unsigned long AYATime) {
   }
 }
 
-int getAddress(Node *node, struct addrinfo **serverAddr) {
-  struct addrinfo hints;
-
-  memset(&hints, 0, sizeof(hints));
+int getAddress(Node *node, struct sockaddr_in **sockAddr) {
   char portBuf[10];
+  struct addrinfo hints, *res, *feed_server;
+
   snprintf(portBuf, 10, "%lu", node->id);
+  memset(&hints, 0, sizeof(hints));
 
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_family = AF_INET;
-  // hints.ai_protocol = IPPROTO_UDP;
+  hints.ai_protocol = IPPROTO_UDP;
 
-  if (getaddrinfo(node->hostname, portBuf, &hints, serverAddr)) {
+  if (getaddrinfo(node->hostname, portBuf, &hints, &feed_server)) {
     perror("Couldn't lookup hostname\n");
     return -1;
+  }
+
+  for (res = feed_server; res != NULL; res = res->ai_next) {
+    *sockAddr = (struct sockaddr_in *)res->ai_addr;
+    printf("host: %s -> ip: %s\n", node->hostname, inet_ntoa((*sockAddr)->sin_addr));
+    return 0;
   }
   return 0;
 }
 
-int sendMessage(message *msg, struct addrinfo *serverAddr) {
-  int bytesSent;
-  bytesSent = sendto(sockfd, msg, sizeof(msg), MSG_CONFIRM, serverAddr->ai_addr,
-                     serverAddr->ai_addrlen);
+int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
+  int bytesSent =
+      sendto(sockfd, msg, sizeof(*msg), MSG_CONFIRM,
+             (struct sockaddr *)sockAddr, sizeof(struct sockaddr_in));
   if (bytesSent != sizeof(msg)) {
     perror("UDP send failed: ");
     return -1;
@@ -258,46 +265,41 @@ void createMessage(message *msg, unsigned long electionId, msgType type) {
   memcpy(msg->vectorClock, nodeTimes, sizeof(*nodeTimes) * MAX_NODES);
 }
 
-int isCoordinator() { return 0; }
-
 void coordinate() {
-
+  Node node;
   message response;
   struct sockaddr_in *client = NULL;
 
   receiveMessage(&response, client);
 
-  struct addrinfo *serverAddr = NULL;
-  Node node;
-
-  getAddress(&node, &serverAddr);
+  getAddress(&node, &client);
   createMessage(&response, response.electionID, IAA);
-  sendMessage(&response, serverAddr);
+  sendMessage(&response, client);
 }
 
-void sendAYA(Node *node, struct addrinfo *serverAddr) {
+void sendAYA(Node *node, struct sockaddr_in *sockAddr) {
   message msg;
   createMessage(&msg, node->id, AYA);
-  sendMessage(&msg, serverAddr);
+  sendMessage(&msg, sockAddr);
   printf("Sent AYA [%ul, %ul] to %s\n", msg.electionID, msg.msgID,
          node->hostname);
 }
 
-// Return 0 if this node is designated the coordinator, 1 otherwise.
 // coordinatorId will be set to the new coordinator's ID at the end.
-int election(Node *coord) {
-  int isCoord = 0;
+void election(Node *coord) {
+  isCoord = 0;
   unsigned long electionId = (unsigned long)rand();
   Node *currentNode = nodes;
 
   // Send message to all nodes that have an ID > than the current node's ID.
   while (currentNode != NULL) {
     if (currentNode->id > myNode.id) {
+      printf("Sending ELECT to nodes...\n");
       message msg;
-      struct addrinfo *serverAddr;
-      getAddress(currentNode, &serverAddr);
+      struct sockaddr_in *sockAddr = NULL;
+      getAddress(currentNode, &sockAddr);
       createMessage(&msg, electionId, ELECT);
-      sendMessage(&msg, serverAddr);
+      sendMessage(&msg, sockAddr);
     }
     currentNode = currentNode->next;
   }
@@ -311,30 +313,29 @@ int election(Node *coord) {
     if (receiveMessage(&response, &client) > 0) {
       // This node received an ANSWER message -> it is NOT the coordinator.
       if (response.electionID == electionId) {
-        return 1;
+        return;
       }
     } else {
       // This node is the coordinator -> send out COORD messages to all nodes.
+      isCoord = 0;
       Node *currentNode = nodes;
       while (currentNode != NULL) {
         message coordMsg;
         createMessage(&coordMsg, electionId, COORD);
         currentNode = currentNode->next;
       }
-      return 0;
     }
   }
   // This should never happen.
   perror("Why this happen...");
-  return 0;
 }
 
-int sendAYAAndRespond(Node *node, struct addrinfo *serverAddr) {
+int sendAYAAndRespond(Node *node, struct sockaddr_in *sockAddr) {
   message msg;
   struct sockaddr_in *client = NULL;
 
   // Send an initial AYA message to coordinator to start off the process.
-  sendAYA(node, serverAddr);
+  sendAYA(node, sockAddr);
 
   // Now wait for an IAA message.
   if (receiveMessage((void *)&msg, client) == -1) {
@@ -405,11 +406,6 @@ int main(int argc, char **argv) {
   printf("Timeout value:            %lu\n", timeoutValue);
   printf("AYATime:                  %lu\n", AYATime);
   printf("Send failure probability: %lu\n", sendFailureProbability);
-  /* printf("Some examples of how to format data for shiviz\n"); */
-  /* printf("Starting up Node %lu\n", port); */
-  /* printf("N%lu {\"N%lu\" : %lu }\n", port, port, myClock++); */
-  /* printf("Sending to Node 1\n"); */
-  /* printf("N%lu {\"N%lu\" : %lu }\n", port, port, myClock++); */
 
   if (err) {
     printf("%d conversion error%sencountered, program exiting.\n", err,
@@ -445,33 +441,33 @@ int main(int argc, char **argv) {
   sockfd = initServer();
 
   if (sockfd < 0) {
-      perror("Invalid socket binding: ");
-      exit(EXIT_FAILURE);
+    perror("Invalid socket binding: ");
+    exit(EXIT_FAILURE);
   }
 
   setSocketTimeout(sockfd, timeoutValue);
 
-  struct addrinfo *serverAddr = NULL;
+  struct sockaddr_in *sockAddr = NULL;
 
   message response;
 
   // Initialize log file
   logFile = fopen(logFileName, "w+");
   if (logFile == NULL) {
-    perror("Log file...");
+    perror("Log file error: ");
     exit(EXIT_FAILURE);
   }
   logEvent("Starting node");
 
   while (1) {
-    if (!isCoordinator()) {
+    if (isCoord != 0) {
       if (coord.id != -1)
       // The coordinator is known.
       {
-        getAddress(&coord, &serverAddr);
+        getAddress(&coord, &sockAddr);
       }
 
-      if (serverAddr == NULL || sendAYAAndRespond(&coord, serverAddr) < 0) {
+      if (sockAddr == NULL || sendAYAAndRespond(&coord, sockAddr) < 0) {
         // Either AYA timed out or coordinator is not known yet -> call
         // election.
         election(&coord);
@@ -481,6 +477,5 @@ int main(int argc, char **argv) {
     }
   }
 
-  freeaddrinfo(serverAddr);
   fclose(logFile);
 }
