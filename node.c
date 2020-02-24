@@ -126,20 +126,18 @@ Node *readGroupListFile(char *fileName)
 }
 
 int initServer() {
+    char portBuf[10];
+    snprintf(portBuf, 10, "%lu", myNode.id);
   const char *hostname = myNode.hostname;
-  const char *portname = (char *)myNode.id;
-  struct addrinfo hints;
+  struct addrinfo hints, *res;
 
   memset(&hints, 0, sizeof(hints));
 
-  hints.ai_family = AF_UNSPEC;
+  hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_DGRAM;
-  hints.ai_protocol = 0;
-  hints.ai_flags = AI_PASSIVE | AI_ADDRCONFIG;
 
-  struct addrinfo *res = NULL;
   printf("hello");
-  int err = getaddrinfo(hostname, portname, &hints, &res);
+  int err = getaddrinfo(hostname, portBuf, &hints, &res);
   printf("after");
   if (err != 0) {
     perror("Invalid address: ");
@@ -213,12 +211,14 @@ int getAddress(Node *node, struct addrinfo *serverAddr) {
   struct addrinfo hints;
 
   memset(&hints, 0, sizeof(hints));
+    char portBuf[10];
+    snprintf(portBuf, 10, "%lu", node->id);
 
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_family = AF_INET;
   hints.ai_protocol = IPPROTO_UDP;
 
-  if (getaddrinfo(node->hostname, (char *)node->id, &hints, &serverAddr)) {
+  if (getaddrinfo(node->hostname, portBuf, &hints, &serverAddr)) {
     perror("Couldn't lookup hostname\n");
     return -1;
   }
