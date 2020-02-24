@@ -40,11 +40,30 @@ typedef struct coordinator
     char *hostname;
 } Coordinator;
 
-int sockfd;
-vectorClock nodeTimes[MAX_NODES];
-Node *nodes = NULL;
-Node myNode = {-1};
-Node coord = {-1};
+static int sockfd;
+static Node *nodes = NULL;
+static Node myNode = {-1};
+static Node coord = {-1};
+static int myIndex;
+static FILE* logFile;
+static vectorClock nodeTimes[MAX_NODES];
+
+
+void logEvent(char* description) {
+    ++(nodeTimes[myIndex].time);
+    fprintf(logFile, "%s\n", description);
+    fprintf(logFile, "N%d {", myIndex+1);
+    int first = 1;
+    for (int i = 0; i < MAX_NODES; i++) {
+        if (nodeTimes[i].time != 0) {
+            if (!first) fprintf(logFile, ", ");
+            fprintf(logFile, "\"N%d\": %u", i+1, nodeTimes[i].time);
+            first = 0;
+        }
+    }
+    fprintf(logFile, "}\n");
+    fflush(logFile);
+}
 
 void usage(char *cmd)
 {
@@ -58,13 +77,16 @@ int validatePort(Node *nodes, unsigned long port)
     // Verify that the port number passed to this program is in the list of nodes;
     Node *curr = nodes;
     int hasPort = -1;
+    int idx = 0;
     while (curr != NULL)
     {
         if (port == curr->id)
         {
             hasPort = 0;
+            myIndex = idx;
         }
         curr = curr->next;
+        ++idx;
     }
     return hasPort;
 }
@@ -265,12 +287,12 @@ void coordinate()
 
     message response;
     struct sockaddr_in *client = NULL;
-    
+
     receiveMessage(&response, client);
 
     struct addrinfo *serverAddr = NULL;
     Node node;
-    
+
     getAddress(&node, serverAddr);
     createMessage(&response, response.electionID, IAA);
     sendMessage(&response, sockfd, serverAddr);
@@ -307,13 +329,13 @@ int election(Node *coord)
 
     message response = {-1};
     struct sockaddr_in *client = NULL;
-    
+
     // Wait for at least one ANSWER message (with the same election ID), which means that this node is NOT the coordinator.
     while (response.electionID == electionId) {
 	if (receiveMessage(&response, client) > 0) {
 	    // This node received an ANSWER message -> it is NOT the coordinator.
 	    if (response.electionID == electionId) {
-		return 1;	
+		return 1;
 	    }
 	} else {
 	    // This node is the coordinator -> send out COORD messages to all nodes.
@@ -322,7 +344,7 @@ int election(Node *coord)
 		message coordMsg;
 		createMessage(&coordMsg, electionId, COORD);
 		currentNode = currentNode->next;
-	    }	
+	    }
 	    return 0;
 	}
     }
@@ -335,7 +357,7 @@ int sendAYAAndRespond(Node *node, struct addrinfo *serverAddr)
 {
     message msg;
     struct sockaddr_in *client = NULL;
-    
+
     // Send an initial AYA message to coordinator to start off the process.
     sendAYA(node, serverAddr);
 
@@ -451,7 +473,7 @@ int main(int argc, char **argv)
     Node* currentNode = nodes;
     while (currentNode != NULL) {
 	if (currentNode->id == myNode.id) {
-	    myNode.hostname = currentNode->hostname;   
+	    myNode.hostname = currentNode->hostname;
 	}
 	currentNode = currentNode->next;
     }
@@ -465,6 +487,15 @@ int main(int argc, char **argv)
 
     message response;
 
+    Node coord;
+    coord.hostname = NULL;
+
+    // Initialize log file
+    logFile = fopen(logFileName, "w+");
+    if (logFile == NULL) exit(EXIT_FAILURE);
+    logEvent("Starting node");
+
+    printf("Begin loop\n");
     while (1)
     {
         if (!isCoordinator())
@@ -488,4 +519,5 @@ int main(int argc, char **argv)
     }
 
     freeaddrinfo(serverAddr);
+    fclose(logFile);
 }
