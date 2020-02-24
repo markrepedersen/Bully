@@ -301,6 +301,7 @@ int election(Node *coord) {
       createMessage(&msg, electionId, ELECT);
       sendMessage(&msg, sockfd, serverAddr);
     }
+    currentNode = currentNode->next;
   }
 
   message response = {-1};
