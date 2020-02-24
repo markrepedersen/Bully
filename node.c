@@ -157,7 +157,7 @@ int initServer() {
   }
 
   freeaddrinfo(res);
-  return 0;
+  return fd;
 }
 
 void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
@@ -224,8 +224,7 @@ int getAddress(Node *node, struct addrinfo *serverAddr) {
   return 0;
 }
 
-int sendMessage(message *msg, int sockfd, struct addrinfo *serverAddr) {
-  // Send the message to ourselves
+int sendMessage(message *msg, struct addrinfo *serverAddr) {
   int bytesSent;
   bytesSent = sendto(sockfd, msg, sizeof(msg), MSG_CONFIRM, serverAddr->ai_addr,
                      serverAddr->ai_addrlen);
@@ -273,13 +272,13 @@ void coordinate() {
 
   getAddress(&node, serverAddr);
   createMessage(&response, response.electionID, IAA);
-  sendMessage(&response, sockfd, serverAddr);
+  sendMessage(&response, serverAddr);
 }
 
 void sendAYA(Node *node, struct addrinfo *serverAddr) {
   message msg;
   createMessage(&msg, node->id, AYA);
-  sendMessage(&msg, sockfd, serverAddr);
+  sendMessage(&msg, serverAddr);
   printf("Sent AYA [%ul, %ul] to %s\n", msg.electionID, msg.msgID,
          node->hostname);
 }
@@ -298,7 +297,7 @@ int election(Node *coord) {
       struct addrinfo serverAddr;
       getAddress(currentNode, &serverAddr);
       createMessage(&msg, electionId, ELECT);
-      sendMessage(&msg, sockfd, &serverAddr);
+      sendMessage(&msg, &serverAddr);
     }
     currentNode = currentNode->next;
   }
@@ -308,7 +307,7 @@ int election(Node *coord) {
 
   // Wait for at least one ANSWER message (with the same election ID), which
   // means that this node is NOT the coordinator.
-  while (response.electionID == electionId) {
+  while (response.electionID != electionId) {
     if (receiveMessage(&response, client) > 0) {
       // This node received an ANSWER message -> it is NOT the coordinator.
       if (response.electionID == electionId) {
@@ -444,6 +443,12 @@ int main(int argc, char **argv) {
   initVectorClock(nodeTimes, MAX_NODES, nodes);
 
   sockfd = initServer();
+
+  if (sockfd < 0) {
+      perror("Invalid socket binding: ");
+      exit(EXIT_FAILURE);
+  }
+  
   setSocketTimeout(sockfd, timeoutValue);
 
   struct addrinfo *serverAddr = NULL;
