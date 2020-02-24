@@ -135,14 +135,10 @@ Node *readGroupListFile(char *fileName)
     return head;
 }
 
-int initServer(unsigned long port)
+int initServer()
 {
-    // This is some sample code to setup a UDP socket for sending and receiving.
     int sockfd;
     struct sockaddr_in servAddr;
-
-    // Create the socket
-    // The following must be one of the parameters don't leave this as it is
 
     if ((sockfd = socket(AF_INET, SOCK_DGRAM, 0)) < 0)
     {
@@ -150,12 +146,10 @@ int initServer(unsigned long port)
         exit(EXIT_FAILURE);
     }
 
-    // Setup my server information
     memset(&servAddr, 0, sizeof(servAddr));
     servAddr.sin_family = AF_INET;
-    servAddr.sin_port = htons(port);
-    // Accept on any of the machine's IP addresses.
-    servAddr.sin_addr.s_addr = INADDR_ANY;
+    servAddr.sin_port = htons(myNode.id);
+    servAddr.sin_addr.s_addr = inet_addr(myNode.hostname);
 
     // Bind the socket to the requested addresses and port
     if (bind(sockfd, (const struct sockaddr *)&servAddr, sizeof(servAddr)) < 0)
@@ -480,7 +474,7 @@ int main(int argc, char **argv)
 
     initVectorClock(nodeTimes, MAX_NODES, nodes);
 
-    sockfd = initServer(myNode.id);
+    sockfd = initServer();
     setSocketTimeout(sockfd, timeoutValue);
 
     struct addrinfo *serverAddr = NULL;
