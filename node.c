@@ -489,7 +489,6 @@ int main(int argc, char **argv)
     if (logFile == NULL) exit(EXIT_FAILURE);
     logEvent("Starting node");
 
-    printf("Begin loop\n");
     while (1)
     {
         if (!isCoordinator())
