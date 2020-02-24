@@ -1,0 +1,3 @@
+localhost 1856
+localhost 1857
+remote.ugrad.cs.ubc.ca 2000
