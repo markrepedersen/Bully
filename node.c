@@ -85,40 +85,41 @@ int validatePort(Node *nodes, unsigned long port) {
   return hasPort;
 }
 
-Node *readGroupListFile(char *fileName) {
-  FILE *fp;
-  char *line = NULL;
-  size_t len = 0;
-  ssize_t read;
-  Node *prev = NULL, *next = NULL, *head = NULL;
-  int numNodes = 0;
+Node *readGroupListFile(char *fileName)
+{
+    FILE *fp;
+    char *line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    Node *prev = NULL, *head = NULL;
 
-  fp = fopen(fileName, "r");
-  if (fp == NULL) {
-    exit(EXIT_FAILURE);
-  }
-
-  while ((read = getline(&line, &len, fp)) != -1) {
-    numNodes++;
-
-    char *hostname = strtok(line, " ");
-    char *id = strtok(NULL, line);
-
-    Node *curr = malloc(sizeof(Node));
-
-    curr->id = strtoul(id, NULL, 0);
-    curr->hostname = hostname;
-    curr->prev = prev;
-    curr->next = NULL;
-
-    if (prev != NULL) {
-      prev->next = curr;
+    fp = fopen(fileName, "r");
+    if (fp == NULL)
+    {
+        exit(EXIT_FAILURE);
     }
-    prev = curr;
 
-    if (numNodes <= 1) {
-      head = curr;
-    }
+    while ((read = getline(&line, &len, fp)) != -1)
+    {
+        char *hostname = strtok(line, " ");
+        if (strcmp(hostname, line) != 0) break;
+
+        char *id = strtok(NULL, " ");
+        if (strtok(NULL, " ") != NULL) break;
+
+        unsigned long nodeId = strtoul(id, NULL, 0);
+        if (nodeId == 0) break;
+
+        Node *curr = malloc(sizeof(Node));
+        curr->id = nodeId;
+        curr->hostname = strdup(hostname);
+        curr->prev = prev;
+        curr->next = NULL;
+
+        if (prev) prev->next = curr;
+        else head = curr;
+        prev = curr;
+        curr = curr->next;
   }
 
   return head;
