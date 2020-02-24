@@ -129,7 +129,7 @@ Node *readGroupListFile(char *fileName) {
   return head;
 }
 
-int initServer() {
+void initServer() {
   char portBuf[10];
   snprintf(portBuf, 10, "%lu", myNode.id);
   const char *hostname = myNode.hostname;
@@ -143,22 +143,21 @@ int initServer() {
   int err = getaddrinfo(hostname, portBuf, &hints, &res);
   if (err != 0) {
     perror("Invalid address: ");
-    return -1;
+    exit(EXIT_FAILURE);
   }
 
-  int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-  if (fd == -1) {
+  sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  if (sockfd == -1) {
     perror("Socket creation failure");
-    return -1;
+    exit(EXIT_FAILURE);
   }
 
-  if (bind(fd, res->ai_addr, res->ai_addrlen) == -1) {
+  if (bind(sockfd, res->ai_addr, res->ai_addrlen) == -1) {
     perror("Bind failure");
-    return -1;
+    exit(EXIT_FAILURE);
   }
 
   freeaddrinfo(res);
-  return fd;
 }
 
 void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
@@ -171,7 +170,7 @@ void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
 int receiveMessage(message *buf, struct sockaddr_in *client) {
   int len;
 
-  memset(&client, 0, sizeof(client));
+  memset(client, 0, sizeof(*client));
   client->sin_family = AF_INET;
   client->sin_port = htons(myNode.id);
   client->sin_addr.s_addr = INADDR_ANY;
@@ -220,13 +219,13 @@ int getAddress(Node *node, struct sockaddr_in **sockAddr) {
 
   if (getaddrinfo(node->hostname, portBuf, &hints, &feed_server)) {
     perror("Couldn't lookup hostname\n");
-    return -1;
+    exit(EXIT_FAILURE);
   }
 
   for (res = feed_server; res != NULL; res = res->ai_next) {
     *sockAddr = (struct sockaddr_in *)res->ai_addr;
-    printf("host: %s -> ip: %s\n", node->hostname, inet_ntoa((*sockAddr)->sin_addr));
-    return 0;
+    printf("host: %s -> ip: %s\n", node->hostname,
+           inet_ntoa((*sockAddr)->sin_addr));
   }
   return 0;
 }
@@ -235,11 +234,12 @@ int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
   int bytesSent =
       sendto(sockfd, msg, sizeof(*msg), MSG_CONFIRM,
              (struct sockaddr *)sockAddr, sizeof(struct sockaddr_in));
-  if (bytesSent != sizeof(msg)) {
-    perror("UDP send failed: ");
+  if (bytesSent != sizeof(*msg)) {
+    perror("UDP send failed");
     return -1;
   }
-  return 0;
+  printf("[%du] Sent message with message type: %du\n", msg->electionID, msg->msgID);
+  return bytesSent;
 }
 
 // Initialize the node's vector clock to match the list of nodes given.
@@ -262,7 +262,7 @@ void initVectorClock(vectorClock *nodeTimes, int numClocks, Node *node) {
 void createMessage(message *msg, unsigned long electionId, msgType type) {
   msg->electionID = electionId;
   msg->msgID = type;
-  memcpy(msg->vectorClock, nodeTimes, sizeof(*nodeTimes) * MAX_NODES);
+  memcpy(msg->vectorClock, nodeTimes, sizeof(nodeTimes));
 }
 
 void coordinate() {
@@ -286,7 +286,7 @@ void sendAYA(Node *node, struct sockaddr_in *sockAddr) {
 }
 
 // coordinatorId will be set to the new coordinator's ID at the end.
-void election(Node *coord) {
+void election() {
   isCoord = 0;
   unsigned long electionId = (unsigned long)rand();
   Node *currentNode = nodes;
@@ -294,7 +294,7 @@ void election(Node *coord) {
   // Send message to all nodes that have an ID > than the current node's ID.
   while (currentNode != NULL) {
     if (currentNode->id > myNode.id) {
-      printf("Sending ELECT to nodes...\n");
+      printf("[%lu] Sending ELECT to nodes...\n", electionId);
       message msg;
       struct sockaddr_in *sockAddr = NULL;
       getAddress(currentNode, &sockAddr);
@@ -437,8 +437,7 @@ int main(int argc, char **argv) {
   }
 
   initVectorClock(nodeTimes, MAX_NODES, nodes);
-
-  sockfd = initServer();
+  initServer();
 
   if (sockfd < 0) {
     perror("Invalid socket binding: ");
@@ -470,7 +469,7 @@ int main(int argc, char **argv) {
       if (sockAddr == NULL || sendAYAAndRespond(&coord, sockAddr) < 0) {
         // Either AYA timed out or coordinator is not known yet -> call
         // election.
-        election(&coord);
+        election();
       }
     } else {
       coordinate();
