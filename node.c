@@ -302,13 +302,13 @@ int election(Node *coord) {
     currentNode = currentNode->next;
   }
 
-  message response = {-1};
-  struct sockaddr_in *client = NULL;
+  message response;
+  struct sockaddr_in client;
 
   // Wait for at least one ANSWER message (with the same election ID), which
   // means that this node is NOT the coordinator.
   while (response.electionID != electionId) {
-    if (receiveMessage(&response, client) > 0) {
+    if (receiveMessage(&response, &client) > 0) {
       // This node received an ANSWER message -> it is NOT the coordinator.
       if (response.electionID == electionId) {
         return 1;
@@ -454,9 +454,6 @@ int main(int argc, char **argv) {
   struct addrinfo *serverAddr = NULL;
 
   message response;
-
-  Node coord;
-  coord.hostname = NULL;
 
   // Initialize log file
   logFile = fopen(logFileName, "w+");
