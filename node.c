@@ -85,49 +85,52 @@ int validatePort(Node *nodes, unsigned long port) {
   return hasPort;
 }
 
-Node *readGroupListFile(char *fileName)
-{
-    FILE *fp;
-    char *line = NULL;
-    size_t len = 0;
-    ssize_t read;
-    Node *prev = NULL, *head = NULL;
+Node *readGroupListFile(char *fileName) {
+  FILE *fp;
+  char *line = NULL;
+  size_t len = 0;
+  ssize_t read;
+  Node *prev = NULL, *head = NULL;
 
-    fp = fopen(fileName, "r");
-    if (fp == NULL)
-    {
-        exit(EXIT_FAILURE);
-    }
+  fp = fopen(fileName, "r");
+  if (fp == NULL) {
+    perror("Group list exit failure: ");
+    exit(EXIT_FAILURE);
+  }
 
-    while ((read = getline(&line, &len, fp)) != -1)
-    {
-        char *hostname = strtok(line, " ");
-        if (strcmp(hostname, line) != 0) break;
+  while ((read = getline(&line, &len, fp)) != -1) {
+    char *hostname = strtok(line, " ");
+    if (strcmp(hostname, line) != 0)
+      break;
 
-        char *id = strtok(NULL, " ");
-        if (strtok(NULL, " ") != NULL) break;
+    char *id = strtok(NULL, " ");
+    if (strtok(NULL, " ") != NULL)
+      break;
 
-        unsigned long nodeId = strtoul(id, NULL, 0);
-        if (nodeId == 0) break;
+    unsigned long nodeId = strtoul(id, NULL, 0);
+    if (nodeId == 0)
+      break;
 
-        Node *curr = malloc(sizeof(Node));
-        curr->id = nodeId;
-        curr->hostname = strdup(hostname);
-        curr->prev = prev;
-        curr->next = NULL;
+    Node *curr = malloc(sizeof(Node));
+    curr->id = nodeId;
+    curr->hostname = strdup(hostname);
+    curr->prev = prev;
+    curr->next = NULL;
 
-        if (prev) prev->next = curr;
-        else head = curr;
-        prev = curr;
-        curr = curr->next;
+    if (prev)
+      prev->next = curr;
+    else
+      head = curr;
+    prev = curr;
+    curr = curr->next;
   }
 
   return head;
 }
 
 int initServer() {
-    char portBuf[10];
-    snprintf(portBuf, 10, "%lu", myNode.id);
+  char portBuf[10];
+  snprintf(portBuf, 10, "%lu", myNode.id);
   const char *hostname = myNode.hostname;
   struct addrinfo hints, *res;
 
@@ -136,17 +139,13 @@ int initServer() {
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_DGRAM;
 
-  printf("hello");
   int err = getaddrinfo(hostname, portBuf, &hints, &res);
-  printf("after");
   if (err != 0) {
     perror("Invalid address: ");
     return -1;
   }
-    printf("after addr");
 
   int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
-    printf("socket");
   if (fd == -1) {
     perror("Socket creation failure");
     return -1;
@@ -156,7 +155,7 @@ int initServer() {
     perror("Bind failure");
     return -1;
   }
-    printf("after bind");
+
   freeaddrinfo(res);
   return 0;
 }
@@ -211,8 +210,8 @@ int getAddress(Node *node, struct addrinfo *serverAddr) {
   struct addrinfo hints;
 
   memset(&hints, 0, sizeof(hints));
-    char portBuf[10];
-    snprintf(portBuf, 10, "%lu", node->id);
+  char portBuf[10];
+  snprintf(portBuf, 10, "%lu", node->id);
 
   hints.ai_socktype = SOCK_DGRAM;
   hints.ai_family = AF_INET;
@@ -296,10 +295,10 @@ int election(Node *coord) {
   while (currentNode != NULL) {
     if (currentNode->id > myNode.id) {
       message msg;
-      struct addrinfo *serverAddr = NULL;
-      getAddress(currentNode, serverAddr);
+      struct addrinfo serverAddr;
+      getAddress(currentNode, &serverAddr);
       createMessage(&msg, electionId, ELECT);
-      sendMessage(&msg, sockfd, serverAddr);
+      sendMessage(&msg, sockfd, &serverAddr);
     }
     currentNode = currentNode->next;
   }
@@ -430,6 +429,7 @@ int main(int argc, char **argv) {
 
   int isValidPort = validatePort(nodes, myNode.id);
   if (isValidPort == -1) {
+    printf("Invalid port: %lu", myNode.id);
     exit(EXIT_FAILURE);
   }
 
@@ -455,8 +455,10 @@ int main(int argc, char **argv) {
 
   // Initialize log file
   logFile = fopen(logFileName, "w+");
-  if (logFile == NULL)
+  if (logFile == NULL) {
+    perror("Log file...");
     exit(EXIT_FAILURE);
+  }
   logEvent("Starting node");
 
   while (1) {
