@@ -133,31 +133,34 @@ void initServer() {
   char portBuf[10];
   snprintf(portBuf, 10, "%lu", myNode.id);
   const char *hostname = myNode.hostname;
-  struct addrinfo hints, *res;
+  struct addrinfo hints, *address;
 
   memset(&hints, 0, sizeof(hints));
 
   hints.ai_family = AF_INET;
   hints.ai_socktype = SOCK_DGRAM;
 
-  int err = getaddrinfo(hostname, portBuf, &hints, &res);
+  int err = getaddrinfo(hostname, portBuf, &hints, &address);
   if (err != 0) {
     perror("Invalid address: ");
     exit(EXIT_FAILURE);
   }
 
-  sockfd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  sockfd = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
   if (sockfd == -1) {
     perror("Socket creation failure");
     exit(EXIT_FAILURE);
   }
 
-  if (bind(sockfd, res->ai_addr, res->ai_addrlen) == -1) {
+  if (bind(sockfd, address->ai_addr, address->ai_addrlen) == -1) {
     perror("Bind failure");
     exit(EXIT_FAILURE);
   }
 
-  freeaddrinfo(res);
+  struct sockaddr_in *socketAddress = (struct sockaddr_in*) address->ai_addr;
+  printf("[SUCCESS] Socket bound to %s:%d\n", inet_ntoa(socketAddress->sin_addr), htons(socketAddress->sin_port));
+
+  freeaddrinfo(address);
 }
 
 void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
@@ -167,16 +170,11 @@ void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
   setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
 }
 
-int receiveMessage(message *buf, struct sockaddr_in *client) {
-  int len;
+int receiveMessage(message *message, struct sockaddr_in *client) {
+  socklen_t len = sizeof(*client);
 
-  memset(client, 0, sizeof(*client));
-  client->sin_family = AF_INET;
-  client->sin_port = htons(myNode.id);
-  client->sin_addr.s_addr = INADDR_ANY;
-
-  int n = recvfrom(sockfd, buf, 100, MSG_WAITALL, (struct sockaddr *)client,
-                   (socklen_t *)&len);
+  int n = recvfrom(sockfd, message, sizeof(*message), MSG_WAITALL,
+                   (struct sockaddr *)client, &len);
 
   // Timeout occurred.
   if (errno == EAGAIN || n == EWOULDBLOCK) {
@@ -188,6 +186,9 @@ int receiveMessage(message *buf, struct sockaddr_in *client) {
     perror("Receiving error");
     return -3;
   }
+
+  printf("Data: %du -> Received from %s:%d\n\n", message->electionID,
+         inet_ntoa(client->sin_addr), ntohs(client->sin_port));
 
   return 0;
 }
@@ -224,8 +225,6 @@ int getAddress(Node *node, struct sockaddr_in **sockAddr) {
 
   for (res = feed_server; res != NULL; res = res->ai_next) {
     *sockAddr = (struct sockaddr_in *)res->ai_addr;
-    printf("host: %s -> ip: %s\n", node->hostname,
-           inet_ntoa((*sockAddr)->sin_addr));
   }
   return 0;
 }
@@ -238,7 +237,9 @@ int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
     perror("UDP send failed");
     return -1;
   }
-  printf("[%du] Sent message with message type: %du\n", msg->electionID, msg->msgID);
+  printf("[%d] Sent message (%d/%lu b) to '%s:%d'\n",
+         msg->electionID, bytesSent, sizeof(*msg),
+         inet_ntoa(sockAddr->sin_addr), ntohs(sockAddr->sin_port));
   return bytesSent;
 }
 
@@ -294,7 +295,6 @@ void election() {
   // Send message to all nodes that have an ID > than the current node's ID.
   while (currentNode != NULL) {
     if (currentNode->id > myNode.id) {
-      printf("[%lu] Sending ELECT to nodes...\n", electionId);
       message msg;
       struct sockaddr_in *sockAddr = NULL;
       getAddress(currentNode, &sockAddr);
@@ -307,8 +307,8 @@ void election() {
   message response;
   struct sockaddr_in client;
 
-  // Wait for at least one ANSWER message (with the same election ID), which
-  // means that this node is NOT the coordinator.
+  // Wait for at least one ANSWER message (with the same election ID) to
+  // determine if this node should be the coordinator or not.
   while (response.electionID != electionId) {
     if (receiveMessage(&response, &client) > 0) {
       // This node received an ANSWER message -> it is NOT the coordinator.
@@ -317,7 +317,8 @@ void election() {
       }
     } else {
       // This node is the coordinator -> send out COORD messages to all nodes.
-      isCoord = 0;
+      // TODO: Revert isCoord to 0 when it isn't coord anymore.
+      isCoord = 1;
       Node *currentNode = nodes;
       while (currentNode != NULL) {
         message coordMsg;
@@ -418,7 +419,6 @@ int main(int argc, char **argv) {
     printf("Group list specified by command line.\n");
   } else {
     // Process group list file
-    printf("Reading group list...\n");
     nodes = readGroupListFile(groupListFileName);
   }
 
