@@ -187,7 +187,7 @@ int receiveMessage(message *message, struct sockaddr_in *client) {
     return -3;
   }
 
-  printf("Data: %du -> Received from %s:%d\n\n", message->electionID,
+  printf("[%d] Received from %s:%d\n\n", message->electionID,
          inet_ntoa(client->sin_addr), ntohs(client->sin_port));
 
   return 0;
@@ -328,7 +328,7 @@ void election() {
     }
   }
   // This should never happen.
-  perror("Why this happen...");
+  perror("Why this happen...\n");
 }
 
 int sendAYAAndRespond(Node *node, struct sockaddr_in *sockAddr) {
