@@ -21,6 +21,14 @@ typedef struct coordinator {
   char *hostname;
 } Coordinator;
 
+static unsigned long AYATime;
+static clock_t startTime;
+static unsigned int mins = 0;
+static unsigned int s = 0;
+static unsigned int ms = 0;
+static unsigned int timeLeft = 0;
+static clock_t currentTime;
+static unsigned long countDownTimeInSeconds = 0;
 static int sockfd;
 static Node *nodes = NULL;
 static Node myNode = (Node){0};
@@ -193,14 +201,11 @@ void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
   setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
 }
 
-int getRandomNumber(unsigned long AYATime) {
+unsigned long getRandomNumber() {
   int i;
   int rn;
   rn = random();
-
-  // scale to number between 0 and the 2*AYA time so that
-  // the average value for the timeout is AYA time.
-
+  // in ms
   return rn % (2 * AYATime);
 }
 
@@ -295,15 +300,14 @@ int receiveElectionAnswers() {
   struct sockaddr_in client;
   message msg;
 
-  while (msg.msgID != ANSWER) {
+  while (1) {
     if (receiveMessage(&msg, &client, 0) < 0) {
-      // TODO: mark the node as dead if timeout occurred.
-      // Temporarily mark this node as coordinator if no ANSWER messages
-      // received.
       return 0;
     }
+    if (msg.msgID == ANSWER) {
+      return 1;
+    }
   }
-  return 1;
 }
 
 // Return whether a COORD response was received or not.
@@ -311,33 +315,38 @@ int receiveCoordResponse() {
   struct sockaddr_in client;
   message msg;
 
-  while (msg.msgID != COORD) {
-    if (receiveMessage(&msg, &client, 0) < 0) {
-      return -1;
+  while (1) {
+    int response = receiveMessage(&msg, &client, 0);
+    if (msg.msgID == COORD) {
+      coord.hostname = inet_ntoa(client.sin_addr);
+      coord.id = htons(client.sin_port);
+      return 1;
+    }
+    if (response < 0) {
+      return 0;
     }
   }
-
-  coord.hostname = inet_ntoa(client.sin_addr);
-  coord.id = htons(client.sin_port);
-
-  return 0;
 }
 
-void sendElectToHigherOrderNodes(unsigned long electionId) {
+// Return whether this node becomes the new coordinator or not.
+int sendElectToHigherOrderNodes(unsigned long electionId) {
   isCoord = 0; // New election -> reset coordinator status in case this node is
                // the old coordinator.
   coord = (Node){0};
   Node *currentNode = nodes;
-  int answers = 0;
+  int hasAnswer = 0;
   while (currentNode != NULL) {
     if (currentNode->id > myNode.id) {
       sendElectMessage(currentNode, electionId);
-      answers += receiveElectionAnswers();
+      int answer = receiveElectionAnswers();
+      if (answer) {
+        hasAnswer = 1;
+      }
     }
     currentNode = currentNode->next;
   }
 
-  if (answers == 0) {
+  if (!hasAnswer) {
     // This node has become the new coordinator.
     isCoord = 1;
     Node *currentNode = nodes;
@@ -348,10 +357,11 @@ void sendElectToHigherOrderNodes(unsigned long electionId) {
       currentNode = currentNode->next;
     }
   } else {
+    isCoord = 0;
     message response;
-    // Wait for COORD message to determine the new coordinator.
     receiveCoordResponse();
   }
+  return isCoord;
 }
 
 int receiveMessage(message *message, struct sockaddr_in *client, int block) {
@@ -360,7 +370,7 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
   int n = recvfrom(sockfd, message, sizeof(*message), isBlocking,
                    (struct sockaddr *)client, &len);
 
-  if (n < 0) {
+  if (!block && n < 0) {
     // Timeout occurred.
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
       perror("Timeout occurred.");
@@ -371,29 +381,34 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
     }
   }
 
-  // Convert back to host order.
-  message->electionID = ntohl(message->electionID);
-  message->msgID = ntohl(message->msgID);
-  for (int i = 0; i < MAX_NODES; ++i) {
-      message->vectorClock[0].nodeId = ntohl(message->vectorClock[0].nodeId);
-      message->vectorClock[0].time = ntohl(message->vectorClock[0].time);
-  }
+  if (n > 0) {
+      // Convert back to host order.
+      message->electionID = ntohl(message->electionID);
+      message->msgID = ntohl(message->msgID);
+  
+      for (int i = 0; i < MAX_NODES; ++i) {
+	  message->vectorClock[0].nodeId = ntohl(message->vectorClock[0].nodeId);
+	  message->vectorClock[0].time = ntohl(message->vectorClock[0].time);
+      }
 
-  mergeClocks(message->vectorClock);
-  char* mType = printMessageType(message->msgID);
-  uint16_t senderPort = ntohs(client->sin_port);
-  logEvent("Received %s from %u", mType, senderPort);
-  printf("[%d] Received %s from %s:%d\n", message->electionID,
-         mType, inet_ntoa(client->sin_addr),
-         senderPort);
+      mergeClocks(message->vectorClock);
+      char* mType = printMessageType(message->msgID);
+      uint16_t senderPort = ntohs(client->sin_port);
+      logEvent("Received %s from %u", mType, senderPort);
+      printf("[%d] Received %s from %s:%d\n", message->electionID,
+	     mType, inet_ntoa(client->sin_addr),
+	     senderPort);
 
-  // Always respond to ELECT messages.
-  if (message->msgID == ELECT) {
-    Node node;
-    node.hostname = inet_ntoa(client->sin_addr);
-    node.id = htons(client->sin_port);
-    sendElectionAnswerMessage(&node, node.id);
-    sendElectToHigherOrderNodes(message->electionID);
+      // Always respond to ELECT messages.
+      if (message->msgID == ELECT) {
+	  Node node;
+	  node.hostname = inet_ntoa(client->sin_addr);
+	  node.id = htons(client->sin_port);
+	  sendElectionAnswerMessage(&node, node.id);
+	  sendElectToHigherOrderNodes(message->electionID);
+      } else if (message->msgID == COORD) {
+	  return -1;
+      }
   }
 
   return 0;
@@ -417,35 +432,43 @@ void coordinate() {
   }
 }
 
-void election() {
+void resetTimer() {
+  countDownTimeInSeconds = getRandomNumber();
+  startTime = clock();
+  ms = 0;
+  s = 0;
+  mins = 0;
+  currentTime = 0;
+}
+
+int election() {
   unsigned long electionId = (unsigned long)rand();
-  sendElectToHigherOrderNodes(electionId);
+  return sendElectToHigherOrderNodes(electionId);
 }
 
-void measureTime(int *time) {
-    
+int getTime() {
+  struct timespec time;
+  if (clock_gettime(CLOCK_MONOTONIC, &time) < 0) {
+    perror("clock_gettime()");
+  }
+  return time.tv_sec;
 }
 
-int sendAYA(Node *node, struct sockaddr_in *sockAddr, int *timer) {
-  message msg;
+int receiveIAA() {
   struct sockaddr_in client;
-
-  // In case an elect is encountered when AYATime hasn't elapsed yet.
-  receiveMessage(&msg, &client, 1);
-
-  struct timespec spec;
-  clock_gettime(CLOCK_MONOTONIC, &spec);
-  time_t s = spec.tv_sec;
-
-  sendMessageWithType(node, node->id, AYA);
-
+  message msg;
   while (msg.msgID != IAA) {
     if (receiveMessage(&msg, &client, 0) == -1) {
       return -1;
     }
   }
-
+  resetTimer();
   return 0;
+}
+
+int sendAYA(message *msg, Node *node, struct sockaddr_in *sockAddr) {
+  sendMessageWithType(node, node->id, AYA);
+  return receiveIAA();
 }
 
 int main(int argc, char **argv) {
@@ -456,8 +479,7 @@ int main(int argc, char **argv) {
   char *groupListFileName;
   char *logFileName;
   unsigned long timeoutValue;
-  unsigned long AYATime;
-  unsigned long myClock = 1;
+
   unsigned long sendFailureProbability;
   if (argc != 7) {
     usage(argv[0]);
@@ -548,28 +570,34 @@ int main(int argc, char **argv) {
   struct sockaddr_in *sockAddr = NULL;
   message response;
 
+  // This node is new - start an election to determine the coordinator.
+  election();
+
+  startTime = clock();
   struct addrinfo* addrInfo = NULL;
-  int timer = getRandomNumber(AYATime);
 
   while (1) {
     if (!isCoord) {
-      printf("Coordinator? %s\n", coord.hostname);
-      if (coord.id != 0)
-      // The coordinator is known.
-      {
+      message msg;
         if (addrInfo) freeaddrinfo(addrInfo);
         addrInfo = getAddress(&coord, &sockAddr);
       }
+      getAddress(&coord, &sockAddr);
 
-      if (sockAddr == NULL || sendAYA(&coord, sockAddr, &timer) < 0) {
-        // Either AYA timed out or coordinator is not known yet -> call
-        // election.
-        election();
+      // Non-blocking receive to respond to any new elections.
+      receiveMessage(&msg, sockAddr, 1);
+
+      if (timeLeft == 0 && sendAYA(&msg, &coord, sockAddr) < 0) {
+        int isCoord = election();
       }
+
+      currentTime = clock();
+      ms = currentTime - startTime;
+      s = (ms / (CLOCKS_PER_SEC)) - (mins * 60);
+      mins = (ms / (CLOCKS_PER_SEC)) / 60;
+      timeLeft = countDownTimeInSeconds - s;
     } else {
       coordinate();
     }
-  }
-
   fclose(logFile);
 }
