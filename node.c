@@ -13,10 +13,6 @@
 
 #include "msg.h"
 
-#ifdef __APPLE__
-#define MSG_CONFIRM 0
-#endif
-
 // The purpose of this file is to provide insight into how to make various
 // library calls to perfom some of the key functions required by the
 // application. You are free to completely ignore anything in this file and do
@@ -40,12 +36,12 @@ typedef struct coordinator {
 
 static int sockfd;
 static Node *nodes = NULL;
-static Node myNode = {-1};
-static Node coord = {-1};
+static Node myNode = (Node){0};
+static Node coord = (Node){0};
 static int myIndex;
 static FILE *logFile;
 static vectorClock nodeTimes[MAX_NODES];
-static int isCoord = 1;
+static int isCoord = 0;
 
 void logEvent(char *description) {
   ++(nodeTimes[myIndex].time);
@@ -146,8 +142,9 @@ void initServer() {
     exit(EXIT_FAILURE);
   }
 
-  sockfd = socket(address->ai_family, address->ai_socktype, address->ai_protocol);
-  if (sockfd == -1) {
+  sockfd =
+      socket(address->ai_family, address->ai_socktype, address->ai_protocol);
+  if (sockfd < 0) {
     perror("Socket creation failure");
     exit(EXIT_FAILURE);
   }
@@ -157,10 +154,33 @@ void initServer() {
     exit(EXIT_FAILURE);
   }
 
-  struct sockaddr_in *socketAddress = (struct sockaddr_in*) address->ai_addr;
-  printf("[SUCCESS] Socket bound to %s:%d\n", inet_ntoa(socketAddress->sin_addr), htons(socketAddress->sin_port));
+  struct sockaddr_in *socketAddress = (struct sockaddr_in *)address->ai_addr;
+  printf("[SUCCESS] Socket bound to %s:%d\n",
+         inet_ntoa(socketAddress->sin_addr), htons(socketAddress->sin_port));
 
   freeaddrinfo(address);
+}
+
+char *printMessageType(msgType type) {
+  switch (type) {
+  case ELECT:
+    return "ELECT";
+    break;
+  case ANSWER:
+    return "ANSWER";
+    break;
+  case AYA:
+    return "AYA";
+    break;
+  case IAA:
+    return "IAA";
+    break;
+  case COORD:
+    return "COORD";
+    break;
+  default:
+    return "Invalid message type.";
+  }
 }
 
 void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
@@ -168,29 +188,6 @@ void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
   tv.tv_sec = timeoutValue;
   tv.tv_usec = 0;
   setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
-}
-
-int receiveMessage(message *message, struct sockaddr_in *client) {
-  socklen_t len = sizeof(*client);
-
-  int n = recvfrom(sockfd, message, sizeof(*message), MSG_WAITALL,
-                   (struct sockaddr *)client, &len);
-
-  // Timeout occurred.
-  if (errno == EAGAIN || n == EWOULDBLOCK) {
-    perror("Timeout occurred.");
-    return -1;
-  }
-
-  if (n < 0) {
-    perror("Receiving error");
-    return -3;
-  }
-
-  printf("[%d] Received from %s:%d\n\n", message->electionID,
-         inet_ntoa(client->sin_addr), ntohs(client->sin_port));
-
-  return 0;
 }
 
 void getRandomNumber(unsigned long AYATime) {
@@ -223,23 +220,22 @@ int getAddress(Node *node, struct sockaddr_in **sockAddr) {
     exit(EXIT_FAILURE);
   }
 
-  for (res = feed_server; res != NULL; res = res->ai_next) {
-    *sockAddr = (struct sockaddr_in *)res->ai_addr;
-  }
+  *sockAddr = (struct sockaddr_in *)feed_server->ai_addr;
+
   return 0;
 }
 
 int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
   int bytesSent =
-      sendto(sockfd, msg, sizeof(*msg), MSG_CONFIRM,
-             (struct sockaddr *)sockAddr, sizeof(struct sockaddr_in));
+      sendto(sockfd, msg, sizeof(*msg), 0, (struct sockaddr *)sockAddr,
+             sizeof(struct sockaddr_in));
+  printf("[%d] Sent %s (%d/%lu b) to '%s:%d'\n", msg->electionID,
+         printMessageType(msg->msgID), bytesSent, sizeof(*msg),
+         inet_ntoa(sockAddr->sin_addr), ntohs(sockAddr->sin_port));
   if (bytesSent != sizeof(*msg)) {
     perror("UDP send failed");
     return -1;
   }
-  printf("[%d] Sent message (%d/%lu b) to '%s:%d'\n",
-         msg->electionID, bytesSent, sizeof(*msg),
-         inet_ntoa(sockAddr->sin_addr), ntohs(sockAddr->sin_port));
   return bytesSent;
 }
 
@@ -266,88 +262,156 @@ void createMessage(message *msg, unsigned long electionId, msgType type) {
   memcpy(msg->vectorClock, nodeTimes, sizeof(nodeTimes));
 }
 
-void coordinate() {
-  Node node;
-  message response;
-  struct sockaddr_in *client = NULL;
-
-  receiveMessage(&response, client);
-
-  getAddress(&node, &client);
-  createMessage(&response, response.electionID, IAA);
-  sendMessage(&response, client);
-}
-
-void sendAYA(Node *node, struct sockaddr_in *sockAddr) {
+void sendMessageWithType(Node *node, unsigned long electionId, msgType type) {
   message msg;
-  createMessage(&msg, node->id, AYA);
+  struct sockaddr_in *sockAddr = NULL;
+
+  getAddress(node, &sockAddr);
+  createMessage(&msg, electionId, type);
   sendMessage(&msg, sockAddr);
-  printf("Sent AYA [%ul, %ul] to %s\n", msg.electionID, msg.msgID,
-         node->hostname);
 }
 
-// coordinatorId will be set to the new coordinator's ID at the end.
+void sendElectionAnswerMessage(Node *node, unsigned long electionId) {
+  sendMessageWithType(node, electionId, ANSWER);
+}
+
+void sendElectMessage(Node *node, unsigned long electionId) {
+  sendMessageWithType(node, electionId, ELECT);
+}
+
+void sendCoordinatorMessage(Node *node, unsigned long electionId) {
+  sendMessageWithType(node, electionId, COORD);
+}
+
+int receiveMessage(message *message, struct sockaddr_in *client) {
+  socklen_t len = sizeof(*client);
+  int n = recvfrom(sockfd, message, sizeof(*message), MSG_WAITALL,
+                   (struct sockaddr *)client, &len);
+
+  if (n < 0) {
+    // Timeout occurred.
+    if (errno == EAGAIN || n == EWOULDBLOCK) {
+      perror("Timeout occurred.");
+      return -1;
+    } else {
+      perror("Receiving error");
+      return -2;
+    }
+  }
+
+  printf("[%d] Received %s from %s:%d\n", message->electionID,
+         printMessageType(message->msgID), inet_ntoa(client->sin_addr),
+         ntohs(client->sin_port));
+
+  // Always respond to ELECT messages.
+  if (message->msgID == ELECT) {
+    Node node;
+    node.hostname = inet_ntoa(client->sin_addr);
+    node.id = htons(client->sin_port);
+    sendElectionAnswerMessage(&node, node.id);
+  }
+
+  return 0;
+}
+
+void coordinate() {
+  message response;
+  struct sockaddr_in client;
+
+  // Wait for any AYA messages.
+  int result = receiveMessage(&response, &client);
+
+  if (result >= 0) {
+    // If received an AYA, send back an IAA.
+    if (response.msgID == AYA) {
+      Node node;
+      node.hostname = inet_ntoa(client.sin_addr);
+      node.id = htons(client.sin_port);
+      sendMessageWithType(&node, node.id, IAA);
+    }
+  }
+}
+
+// Return the number of answers received.
+int receiveElectionAnswers() {
+  struct sockaddr_in client;
+  message msg;
+
+  while (msg.msgID != ANSWER) {
+    if (receiveMessage(&msg, &client) < 0) {
+      // TODO: mark the node as dead if timeout occurred.
+      // Temporarily mark this node as coordinator if no ANSWER messages
+      // received.
+      return 0;
+    }
+  }
+  return 1;
+}
+
+// Return whether a COORD response was received or not.
+int receiveCoordResponse() {
+  struct sockaddr_in client;
+  message msg;
+
+  while (msg.msgID != COORD) {
+    if (receiveMessage(&msg, &client) < 0) {
+      return -1;
+    }
+  }
+
+  coord.hostname = inet_ntoa(client.sin_addr);
+  coord.id = htons(client.sin_port);
+
+  return 0;
+}
+
 void election() {
-  isCoord = 0;
+  isCoord = 0; // New election -> reset coordinator status in case this node is
+               // the old coordinator.
+  coord = (Node){0};
+  int answers = 0;
   unsigned long electionId = (unsigned long)rand();
   Node *currentNode = nodes;
 
-  // Send message to all nodes that have an ID > than the current node's ID.
   while (currentNode != NULL) {
     if (currentNode->id > myNode.id) {
-      message msg;
-      struct sockaddr_in *sockAddr = NULL;
-      getAddress(currentNode, &sockAddr);
-      createMessage(&msg, electionId, ELECT);
-      sendMessage(&msg, sockAddr);
+      sendElectMessage(currentNode, electionId);
+      answers += receiveElectionAnswers();
     }
     currentNode = currentNode->next;
   }
 
-  message response;
-  struct sockaddr_in client;
-
-  // Wait for at least one ANSWER message (with the same election ID) to
-  // determine if this node should be the coordinator or not.
-  while (response.electionID != electionId) {
-    if (receiveMessage(&response, &client) > 0) {
-      // This node received an ANSWER message -> it is NOT the coordinator.
-      if (response.electionID == electionId) {
-        return;
+  if (answers == 0) {
+    // This node has become the new coordinator.
+    isCoord = 1;
+    Node *currentNode = nodes;
+    while (currentNode != NULL) {
+      if (currentNode->id != myNode.id) {
+        sendCoordinatorMessage(currentNode, electionId);
       }
-    } else {
-      // This node is the coordinator -> send out COORD messages to all nodes.
-      // TODO: Revert isCoord to 0 when it isn't coord anymore.
-      isCoord = 1;
-      Node *currentNode = nodes;
-      while (currentNode != NULL) {
-        message coordMsg;
-        createMessage(&coordMsg, electionId, COORD);
-        currentNode = currentNode->next;
-      }
+      currentNode = currentNode->next;
     }
+  } else {
+    message response;
+    // Wait for COORD message to determine the new coordinator.
+    receiveCoordResponse();
   }
-  // This should never happen.
-  perror("Why this happen...\n");
+
+  printf("[%lu] Election over. Node is coord? %d\n", electionId, isCoord);
 }
 
-int sendAYAAndRespond(Node *node, struct sockaddr_in *sockAddr) {
+int sendAYA(Node *node, struct sockaddr_in *sockAddr) {
   message msg;
   struct sockaddr_in *client = NULL;
 
-  // Send an initial AYA message to coordinator to start off the process.
-  sendAYA(node, sockAddr);
+  sendMessageWithType(node, node->id, AYA);
 
-  // Now wait for an IAA message.
-  if (receiveMessage((void *)&msg, client) == -1) {
-    // IAA not received before <timeout> seconds -> call election.
-    printf("Failed to receive IAA.\n");
-    return -1;
-  } else {
-    // IAA message was received.
-    printf("Received IAA [%ul, %ul].\n", msg.electionID, msg.msgID);
-    sleep(1000);
+  while (msg.msgID != IAA) {
+    if (receiveMessage(&msg, client) == -1) {
+      return -1;
+    }
   }
+
   return 0;
 }
 
@@ -438,17 +502,7 @@ int main(int argc, char **argv) {
 
   initVectorClock(nodeTimes, MAX_NODES, nodes);
   initServer();
-
-  if (sockfd < 0) {
-    perror("Invalid socket binding: ");
-    exit(EXIT_FAILURE);
-  }
-
   setSocketTimeout(sockfd, timeoutValue);
-
-  struct sockaddr_in *sockAddr = NULL;
-
-  message response;
 
   // Initialize log file
   logFile = fopen(logFileName, "w+");
@@ -458,15 +512,19 @@ int main(int argc, char **argv) {
   }
   logEvent("Starting node");
 
+  struct sockaddr_in *sockAddr = NULL;
+  message response;
+
   while (1) {
-    if (isCoord != 0) {
-      if (coord.id != -1)
+    if (!isCoord) {
+      printf("Coordinator? %s\n", coord.hostname);
+      if (coord.id != 0)
       // The coordinator is known.
       {
         getAddress(&coord, &sockAddr);
       }
 
-      if (sockAddr == NULL || sendAYAAndRespond(&coord, sockAddr) < 0) {
+      if (sockAddr == NULL || sendAYA(&coord, sockAddr) < 0) {
         // Either AYA timed out or coordinator is not known yet -> call
         // election.
         election();
