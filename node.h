@@ -13,7 +13,8 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/time.h>
 
 #include "msg.h"
 
-int receiveMessage(message *message, struct sockaddr_in *client);
+int receiveMessage(message *message, struct sockaddr_in *client, int block);

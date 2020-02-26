@@ -193,18 +193,15 @@ void setSocketTimeout(int sockfd, unsigned long timeoutValue) {
   setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
 }
 
-void getRandomNumber(unsigned long AYATime) {
+int getRandomNumber(unsigned long AYATime) {
   int i;
-  for (i = 0; i < 10; i++) {
-    int rn;
-    rn = random();
+  int rn;
+  rn = random();
 
-    // scale to number between 0 and the 2*AYA time so that
-    // the average value for the timeout is AYA time.
+  // scale to number between 0 and the 2*AYA time so that
+  // the average value for the timeout is AYA time.
 
-    int sc = rn % (2 * AYATime);
-    printf("Random number %d is: %d\n", i, sc);
-  }
+  return rn % (2 * AYATime);
 }
 
 struct addrinfo* getAddress(Node *node, struct sockaddr_in **sockAddr) {
@@ -299,7 +296,7 @@ int receiveElectionAnswers() {
   message msg;
 
   while (msg.msgID != ANSWER) {
-    if (receiveMessage(&msg, &client) < 0) {
+    if (receiveMessage(&msg, &client, 0) < 0) {
       // TODO: mark the node as dead if timeout occurred.
       // Temporarily mark this node as coordinator if no ANSWER messages
       // received.
@@ -315,7 +312,7 @@ int receiveCoordResponse() {
   message msg;
 
   while (msg.msgID != COORD) {
-    if (receiveMessage(&msg, &client) < 0) {
+    if (receiveMessage(&msg, &client, 0) < 0) {
       return -1;
     }
   }
@@ -357,9 +354,10 @@ void sendElectToHigherOrderNodes(unsigned long electionId) {
   }
 }
 
-int receiveMessage(message *message, struct sockaddr_in *client) {
+int receiveMessage(message *message, struct sockaddr_in *client, int block) {
   socklen_t len = sizeof(*client);
-  int n = recvfrom(sockfd, message, sizeof(*message), MSG_WAITALL,
+  int isBlocking = block == 1 ? MSG_DONTWAIT : MSG_WAITALL;
+  int n = recvfrom(sockfd, message, sizeof(*message), isBlocking,
                    (struct sockaddr *)client, &len);
 
   if (n < 0) {
@@ -406,7 +404,7 @@ void coordinate() {
   struct sockaddr_in client;
 
   // Wait for any AYA messages.
-  int result = receiveMessage(&response, &client);
+  int result = receiveMessage(&response, &client, 0);
 
   if (result >= 0) {
     // If received an AYA, send back an IAA.
@@ -424,14 +422,25 @@ void election() {
   sendElectToHigherOrderNodes(electionId);
 }
 
-int sendAYA(Node *node, struct sockaddr_in *sockAddr) {
+void measureTime(int *time) {
+    
+}
+
+int sendAYA(Node *node, struct sockaddr_in *sockAddr, int *timer) {
   message msg;
   struct sockaddr_in client;
+
+  // In case an elect is encountered when AYATime hasn't elapsed yet.
+  receiveMessage(&msg, &client, 1);
+
+  struct timespec spec;
+  clock_gettime(CLOCK_MONOTONIC, &spec);
+  time_t s = spec.tv_sec;
 
   sendMessageWithType(node, node->id, AYA);
 
   while (msg.msgID != IAA) {
-    if (receiveMessage(&msg, &client) == -1) {
+    if (receiveMessage(&msg, &client, 0) == -1) {
       return -1;
     }
   }
@@ -538,7 +547,9 @@ int main(int argc, char **argv) {
 
   struct sockaddr_in *sockAddr = NULL;
   message response;
+
   struct addrinfo* addrInfo = NULL;
+  int timer = getRandomNumber(AYATime);
 
   while (1) {
     if (!isCoord) {
@@ -550,7 +561,7 @@ int main(int argc, char **argv) {
         addrInfo = getAddress(&coord, &sockAddr);
       }
 
-      if (sockAddr == NULL || sendAYA(&coord, sockAddr) < 0) {
+      if (sockAddr == NULL || sendAYA(&coord, sockAddr, &timer) < 0) {
         // Either AYA timed out or coordinator is not known yet -> call
         // election.
         election();
