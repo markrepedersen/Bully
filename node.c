@@ -30,6 +30,18 @@ static FILE *logFile;
 static vectorClock nodeTimes[MAX_NODES];
 static int isCoord = 0;
 
+void mergeClocks(vectorClock* other) {
+  for (int i = 0; i < MAX_NODES; ++i) {
+    if (i == myIndex) {
+      if (other[i].time > nodeTimes[i].time) {
+        printf("Received message where local time is greater than current.\n");
+      }
+    } else {
+      nodeTimes[i].time = other[i].time > nodeTimes[i].time ? other[i].time : nodeTimes[i].time;
+    }
+  }
+}
+
 void logEvent(char *fmt, ...) {
   va_list args;
   va_start(args, fmt);
@@ -369,6 +381,7 @@ int receiveMessage(message *message, struct sockaddr_in *client) {
       message->vectorClock[0].time = ntohl(message->vectorClock[0].time);
   }
 
+  mergeClocks(message->vectorClock);
   char* mType = printMessageType(message->msgID);
   uint16_t senderPort = ntohs(client->sin_port);
   logEvent("Received %s from %u", mType, senderPort);
