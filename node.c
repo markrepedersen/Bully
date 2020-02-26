@@ -30,21 +30,25 @@ static FILE *logFile;
 static vectorClock nodeTimes[MAX_NODES];
 static int isCoord = 0;
 
-void logEvent(char *description) {
+void logEvent(char *fmt, ...) {
+  va_list args;
+  va_start(args, fmt);
   ++(nodeTimes[myIndex].time);
-  fprintf(logFile, "%s\n", description);
-  fprintf(logFile, "N%d {", myIndex + 1);
+  vfprintf(logFile, fmt, args);
+  fprintf(logFile, "\n");
+  fprintf(logFile, "N%d {", nodeTimes[myIndex].nodeId);
   int first = 1;
   for (int i = 0; i < MAX_NODES; i++) {
     if (nodeTimes[i].time != 0) {
       if (!first)
         fprintf(logFile, ", ");
-      fprintf(logFile, "\"N%d\": %u", i + 1, nodeTimes[i].time);
+      fprintf(logFile, "\"N%d\": %u", nodeTimes[i].nodeId, nodeTimes[i].time);
       first = 0;
     }
   }
   fprintf(logFile, "}\n");
   fflush(logFile);
+  va_end(args);
 }
 
 void usage(char *cmd) {
@@ -191,7 +195,7 @@ void getRandomNumber(unsigned long AYATime) {
   }
 }
 
-int getAddress(Node *node, struct sockaddr_in **sockAddr) {
+struct addrinfo* getAddress(Node *node, struct sockaddr_in **sockAddr) {
   char portBuf[10];
   struct addrinfo hints, *res, *feed_server;
 
@@ -209,7 +213,7 @@ int getAddress(Node *node, struct sockaddr_in **sockAddr) {
 
   *sockAddr = (struct sockaddr_in *)feed_server->ai_addr;
 
-  return 0;
+  return feed_server;
 }
 
 int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
@@ -230,16 +234,11 @@ int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
 // The time for each node is initially 0.
 // The times will change once messages start being received.
 void initVectorClock(vectorClock *nodeTimes, int numClocks, Node *node) {
-  Node *currentNode = node;
   for (int i = 0; i < numClocks; i++) {
-    vectorClock clock = nodeTimes[i];
-    if (currentNode == NULL) {
-      perror("Number of nodes does not match number of clocks.");
-      exit(EXIT_FAILURE);
-    }
-    clock.nodeId = node->id;
-    clock.time = 0;
-    currentNode = node->next;
+    if (node == NULL) return;
+    nodeTimes[i].nodeId = node->id;
+    nodeTimes[i].time = 0;
+    node = node->next;
   }
 }
 
@@ -253,9 +252,10 @@ void sendMessageWithType(Node *node, unsigned long electionId, msgType type) {
   message msg;
   struct sockaddr_in *sockAddr = NULL;
 
-  getAddress(node, &sockAddr);
+  struct addrinfo* addrInfo = getAddress(node, &sockAddr);
   createMessage(&msg, electionId, type);
   sendMessage(&msg, sockAddr);
+  freeaddrinfo(addrInfo);
 }
 
 void sendElectionAnswerMessage(Node *node, unsigned long electionId) {
@@ -341,7 +341,7 @@ int receiveMessage(message *message, struct sockaddr_in *client) {
 
   if (n < 0) {
     // Timeout occurred.
-    if (errno == EAGAIN || n == EWOULDBLOCK) {
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
       perror("Timeout occurred.");
       return -1;
     } else {
@@ -503,6 +503,7 @@ int main(int argc, char **argv) {
 
   struct sockaddr_in *sockAddr = NULL;
   message response;
+  struct addrinfo* addrInfo = NULL;
 
   while (1) {
     if (!isCoord) {
@@ -510,7 +511,8 @@ int main(int argc, char **argv) {
       if (coord.id != 0)
       // The coordinator is known.
       {
-        getAddress(&coord, &sockAddr);
+        if (addrInfo) freeaddrinfo(addrInfo);
+        addrInfo = getAddress(&coord, &sockAddr);
       }
 
       if (sockAddr == NULL || sendAYA(&coord, sockAddr) < 0) {
