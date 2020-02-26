@@ -1,17 +1,4 @@
-#include <arpa/inet.h>
-#include <errno.h>
-#include <netdb.h>
-#include <netinet/in.h>
-#include <pthread.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/socket.h>
-#include <sys/types.h>
-#include <time.h>
-#include <unistd.h>
-
-#include "msg.h"
+#include "node.h"
 
 // The purpose of this file is to provide insight into how to make various
 // library calls to perfom some of the key functions required by the
@@ -283,55 +270,6 @@ void sendCoordinatorMessage(Node *node, unsigned long electionId) {
   sendMessageWithType(node, electionId, COORD);
 }
 
-int receiveMessage(message *message, struct sockaddr_in *client) {
-  socklen_t len = sizeof(*client);
-  int n = recvfrom(sockfd, message, sizeof(*message), MSG_WAITALL,
-                   (struct sockaddr *)client, &len);
-
-  if (n < 0) {
-    // Timeout occurred.
-    if (errno == EAGAIN || n == EWOULDBLOCK) {
-      perror("Timeout occurred.");
-      return -1;
-    } else {
-      perror("Receiving error");
-      return -2;
-    }
-  }
-
-  printf("[%d] Received %s from %s:%d\n", message->electionID,
-         printMessageType(message->msgID), inet_ntoa(client->sin_addr),
-         ntohs(client->sin_port));
-
-  // Always respond to ELECT messages.
-  if (message->msgID == ELECT) {
-    Node node;
-    node.hostname = inet_ntoa(client->sin_addr);
-    node.id = htons(client->sin_port);
-    sendElectionAnswerMessage(&node, node.id);
-  }
-
-  return 0;
-}
-
-void coordinate() {
-  message response;
-  struct sockaddr_in client;
-
-  // Wait for any AYA messages.
-  int result = receiveMessage(&response, &client);
-
-  if (result >= 0) {
-    // If received an AYA, send back an IAA.
-    if (response.msgID == AYA) {
-      Node node;
-      node.hostname = inet_ntoa(client.sin_addr);
-      node.id = htons(client.sin_port);
-      sendMessageWithType(&node, node.id, IAA);
-    }
-  }
-}
-
 // Return the number of answers received.
 int receiveElectionAnswers() {
   struct sockaddr_in client;
@@ -365,14 +303,12 @@ int receiveCoordResponse() {
   return 0;
 }
 
-void election() {
+void sendElectToHigherOrderNodes(unsigned long electionId) {
   isCoord = 0; // New election -> reset coordinator status in case this node is
                // the old coordinator.
   coord = (Node){0};
-  int answers = 0;
-  unsigned long electionId = (unsigned long)rand();
   Node *currentNode = nodes;
-
+  int answers = 0;
   while (currentNode != NULL) {
     if (currentNode->id > myNode.id) {
       sendElectMessage(currentNode, electionId);
@@ -396,8 +332,61 @@ void election() {
     // Wait for COORD message to determine the new coordinator.
     receiveCoordResponse();
   }
+}
 
-  printf("[%lu] Election over. Node is coord? %d\n", electionId, isCoord);
+int receiveMessage(message *message, struct sockaddr_in *client) {
+  socklen_t len = sizeof(*client);
+  int n = recvfrom(sockfd, message, sizeof(*message), MSG_WAITALL,
+                   (struct sockaddr *)client, &len);
+
+  if (n < 0) {
+    // Timeout occurred.
+    if (errno == EAGAIN || n == EWOULDBLOCK) {
+      perror("Timeout occurred.");
+      return -1;
+    } else {
+      perror("Receiving error");
+      return -2;
+    }
+  }
+
+  printf("[%d] Received %s from %s:%d\n", message->electionID,
+         printMessageType(message->msgID), inet_ntoa(client->sin_addr),
+         ntohs(client->sin_port));
+
+  // Always respond to ELECT messages.
+  if (message->msgID == ELECT) {
+    Node node;
+    node.hostname = inet_ntoa(client->sin_addr);
+    node.id = htons(client->sin_port);
+    sendElectionAnswerMessage(&node, node.id);
+    sendElectToHigherOrderNodes(message->electionID);
+  }
+
+  return 0;
+}
+
+void coordinate() {
+  message response;
+  struct sockaddr_in client;
+
+  // Wait for any AYA messages.
+  int result = receiveMessage(&response, &client);
+
+  if (result >= 0) {
+    // If received an AYA, send back an IAA.
+    if (response.msgID == AYA) {
+      Node node;
+      node.hostname = inet_ntoa(client.sin_addr);
+      node.id = htons(client.sin_port);
+      sendMessageWithType(&node, node.id, IAA);
+    }
+  }
+}
+
+void election() {
+  unsigned long electionId = (unsigned long)rand();
+  sendElectToHigherOrderNodes(electionId);
 }
 
 int sendAYA(Node *node, struct sockaddr_in *sockAddr) {
