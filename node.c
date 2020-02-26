@@ -220,9 +220,13 @@ int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
   int bytesSent =
       sendto(sockfd, msg, sizeof(*msg), 0, (struct sockaddr *)sockAddr,
              sizeof(struct sockaddr_in));
+
+  char* mType = printMessageType(ntohl(msg->msgID));
+  uint16_t targetPort = ntohs(sockAddr->sin_port);
+  logEvent("Sent %s to %u", mType, targetPort);
   printf("[%d] Sent %s (%d/%lu b) to '%s:%d'\n", msg->electionID,
-         printMessageType(msg->msgID), bytesSent, sizeof(*msg),
-         inet_ntoa(sockAddr->sin_addr), ntohs(sockAddr->sin_port));
+         mType, bytesSent, sizeof(*msg),
+         inet_ntoa(sockAddr->sin_addr), targetPort);
   if (bytesSent != sizeof(*msg)) {
     perror("UDP send failed");
     return -1;
@@ -246,6 +250,13 @@ void createMessage(message *msg, unsigned long electionId, msgType type) {
   msg->electionID = electionId;
   msg->msgID = type;
   memcpy(msg->vectorClock, nodeTimes, sizeof(nodeTimes));
+  // Convert to network order.
+  msg->electionID = htonl(msg->electionID);
+  msg->msgID = htonl(msg->msgID);
+  for (int i = 0; i < MAX_NODES; ++i) {
+      msg->vectorClock[0].nodeId = htonl(msg->vectorClock[0].nodeId);
+      msg->vectorClock[0].time = htonl(msg->vectorClock[0].time);
+  }
 }
 
 void sendMessageWithType(Node *node, unsigned long electionId, msgType type) {
@@ -350,9 +361,20 @@ int receiveMessage(message *message, struct sockaddr_in *client) {
     }
   }
 
+  // Convert back to host order.
+  message->electionID = ntohl(message->electionID);
+  message->msgID = ntohl(message->msgID);
+  for (int i = 0; i < MAX_NODES; ++i) {
+      message->vectorClock[0].nodeId = ntohl(message->vectorClock[0].nodeId);
+      message->vectorClock[0].time = ntohl(message->vectorClock[0].time);
+  }
+
+  char* mType = printMessageType(message->msgID);
+  uint16_t senderPort = ntohs(client->sin_port);
+  logEvent("Received %s from %u", mType, senderPort);
   printf("[%d] Received %s from %s:%d\n", message->electionID,
-         printMessageType(message->msgID), inet_ntoa(client->sin_addr),
-         ntohs(client->sin_port));
+         mType, inet_ntoa(client->sin_addr),
+         senderPort);
 
   // Always respond to ELECT messages.
   if (message->msgID == ELECT) {
@@ -499,7 +521,7 @@ int main(int argc, char **argv) {
     perror("Log file error: ");
     exit(EXIT_FAILURE);
   }
-  logEvent("Starting node");
+  logEvent("Starting node %lu", myNode.id);
 
   struct sockaddr_in *sockAddr = NULL;
   message response;
