@@ -21,6 +21,7 @@ typedef struct coordinator {
   char *hostname;
 } Coordinator;
 
+static int isFailedElection = 0;
 static unsigned long AYATime;
 static clock_t startTime;
 static unsigned int mins = 0;
@@ -331,8 +332,8 @@ int receiveCoordResponse() {
 
 // Return whether this node becomes the new coordinator or not.
 int sendElectToHigherOrderNodes(unsigned long electionId) {
-  isCoord = 0; // New election -> reset coordinator status in case this node is
-               // the old coordinator.
+  isFailedElection = 0;
+  isCoord = 0;
   coord = (Node){0};
   Node *currentNode = nodes;
   int hasAnswer = 0;
@@ -360,8 +361,7 @@ int sendElectToHigherOrderNodes(unsigned long electionId) {
     }
   } else {
     isCoord = 0;
-    message response;
-    receiveCoordResponse();
+    isFailedElection = !receiveCoordResponse();
   }
   return isCoord;
 }
@@ -472,6 +472,14 @@ int sendAYA(message *msg, Node *node, struct sockaddr_in *sockAddr) {
   return receiveIAA();
 }
 
+void updateTimer() {
+          currentTime = clock();
+      ms = currentTime - startTime;
+      s = (ms / (CLOCKS_PER_SEC)) - (mins * 60);
+      mins = (ms / (CLOCKS_PER_SEC)) / 60;
+      timeLeft = countDownTimeInSeconds - s;
+}
+
 int main(int argc, char **argv) {
   // If you want to produce a repeatable sequence of "random" numbers
   // replace the call to  time() with an integer.
@@ -580,7 +588,7 @@ int main(int argc, char **argv) {
   while (1) {
     if (!isCoord) {
       message msg;
-      
+
       if (addrInfo) {
         freeaddrinfo(addrInfo);
       }
@@ -591,15 +599,15 @@ int main(int argc, char **argv) {
       // Non-blocking receive to respond to any new elections.
       receiveMessage(&msg, sockAddr, 1);
 
-      if (timeLeft == 0 && sendAYA(&msg, &coord, sockAddr) < 0) {
-        int isCoord = election();
+      if (isFailedElection) {
+	  election();
       }
 
-      currentTime = clock();
-      ms = currentTime - startTime;
-      s = (ms / (CLOCKS_PER_SEC)) - (mins * 60);
-      mins = (ms / (CLOCKS_PER_SEC)) / 60;
-      timeLeft = countDownTimeInSeconds - s;
+      if (timeLeft == 0 && sendAYA(&msg, &coord, sockAddr) < 0) {
+        election();
+      }
+      
+      updateTimer();
     } else {
       coordinate();
     }
