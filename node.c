@@ -602,7 +602,6 @@ int main(int argc, char **argv) {
       }
 
       addrInfo = getAddress(&coord, &sockAddr);
-      getAddress(&coord, &sockAddr);
 
       // Non-blocking receive to respond to any new elections.
       receiveMessage(&msg, sockAddr, 1);
