@@ -411,15 +411,13 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
       sendElectionAnswerMessage(&node, node.id);
       sendElectToHigherOrderNodes(message->electionID);
       return ELECT;
-    } else if (message->msgID == COORD) {
-      isCoord = 0;
-      setCoord(client);
-      return COORD;
     } else if (isCoord && message->msgID == AYA) {
       Node node;
       node.hostname = inet_ntoa(client->sin_addr);
       node.id = htons(client->sin_port);
       sendMessageWithType(&node, node.id, IAA);
+    } else if (message->msgID == COORD) {
+	return COORD;
     }
   }
 
@@ -430,7 +428,10 @@ int coordinate() {
   message response;
   struct sockaddr_in client;
 
-  receiveMessage(&response, &client, 0);
+  int messageType = receiveMessage(&response, &client, 0);
+  if (messageType == COORD) {
+      election();
+  }
   return 0;
 }
 
