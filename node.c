@@ -238,8 +238,7 @@ int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
 
   char *mType = printMessageType(ntohl(msg->msgID));
   uint16_t targetPort = ntohs(sockAddr->sin_port);
-  logEvent("Sent %s to %u", mType, targetPort);
-  printf("[%d] Sent %s (%d/%lu b) to '%s:%d'\n", ntohl(msg->electionID), mType,
+  printf("[%u] Sent %s (%d/%lu b) to '%s:%d'\n", ntohl(msg->electionID), mType,
          bytesSent, sizeof(*msg), inet_ntoa(sockAddr->sin_addr), targetPort);
   if (bytesSent != sizeof(*msg)) {
     perror("UDP send failed");
@@ -279,6 +278,7 @@ void sendMessageWithType(Node *node, unsigned long electionId, msgType type) {
   struct sockaddr_in *sockAddr = NULL;
 
   struct addrinfo *addrInfo = getAddress(node, &sockAddr);
+  logEvent("Sent %s to %u", printMessageType(type), node->id);
   createMessage(&msg, electionId, type);
   sendMessage(&msg, sockAddr);
   freeaddrinfo(addrInfo);
@@ -349,6 +349,7 @@ int sendElectToHigherOrderNodes(unsigned long electionId) {
 
   if (!hasAnswer) {
     // This node has become the new coordinator.
+    logEvent("Declaring self as new coordinator");
     isCoord = 1;
     Node *currentNode = nodes;
     while (currentNode != NULL) {
@@ -442,6 +443,7 @@ void resetTimer() {
 
 int election() {
   unsigned long electionId = (unsigned long)rand();
+  logEvent("Starting election %u", electionId);
   return sendElectToHigherOrderNodes(electionId);
 }
 
