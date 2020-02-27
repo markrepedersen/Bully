@@ -21,6 +21,7 @@ typedef struct coordinator {
   char *hostname;
 } Coordinator;
 
+static int isOngoingElection = 0;
 static int isFailedElection = 0;
 static unsigned long AYATime;
 static clock_t startTime;
@@ -403,13 +404,15 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
     printf("[%d] Received %s from %s:%d\n", message->electionID, mType,
            inet_ntoa(client->sin_addr), senderPort);
 
-    // Always respond to ELECT messages.
+    // Always respond to ELECT messages (unless another election is ongoing, in which case keep yours, cancel other).
     if (message->msgID == ELECT) {
-      Node node;
-      node.hostname = inet_ntoa(client->sin_addr);
-      node.id = htons(client->sin_port);
-      sendElectionAnswerMessage(&node, node.id);
-      sendElectToHigherOrderNodes(message->electionID);
+      if (!isOngoingElection) {
+        Node node;
+        node.hostname = inet_ntoa(client->sin_addr);
+        node.id = htons(client->sin_port);
+        sendElectionAnswerMessage(&node, node.id);
+        sendElectToHigherOrderNodes(message->electionID);
+      }
       return ELECT;
     } else if (isCoord && message->msgID == AYA) {
       Node node;
@@ -417,7 +420,7 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
       node.id = htons(client->sin_port);
       sendMessageWithType(&node, node.id, IAA);
     } else if (message->msgID == COORD) {
-	return COORD;
+      return COORD;
     }
   }
 
@@ -430,7 +433,7 @@ int coordinate() {
 
   int messageType = receiveMessage(&response, &client, 0);
   if (messageType == COORD) {
-      election();
+    election();
   }
   return 0;
 }
@@ -444,10 +447,12 @@ void resetTimer(int seed) {
   currentTime = 0;
 }
 
-int election() {
+void election() {
+  isOngoingElection = 1;
   unsigned long electionId = (unsigned long)rand();
   logEvent("Starting election %u", electionId);
-  return sendElectToHigherOrderNodes(electionId);
+  sendElectToHigherOrderNodes(electionId);
+  isOngoingElection = 0;
 }
 
 int getTime() {

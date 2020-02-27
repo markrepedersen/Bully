@@ -18,4 +18,4 @@
 #include "msg.h"
 
 int receiveMessage(message *message, struct sockaddr_in *client, int block);
-int election();
+void election();
