@@ -1,0 +1,30 @@
+Starting node 1856
+N1856 {"N1856": 1}
+Starting election 1749753157
+N1856 {"N1856": 2}
+Sent ELECT to 1857
+N1856 {"N1856": 3}
+Sent ELECT to 2000
+N1856 {"N1856": 4}
+Received COORD from 1857
+N1856 {"N1856": 5, "N1857": 5}
+Declaring self as new coordinator
+N1856 {"N1856": 6, "N1857": 5}
+Sent COORD to 1857
+N1856 {"N1856": 7, "N1857": 5}
+Sent COORD to 2000
+N1856 {"N1856": 8, "N1857": 5}
+Starting node 1857
+N1857 {"N1857": 1}
+Starting election 1905525843
+N1857 {"N1857": 2}
+Sent ELECT to 2000
+N1857 {"N1857": 3}
+Declaring self as new coordinator
+N1857 {"N1857": 4}
+Sent COORD to 1856
+N1857 {"N1857": 5}
+Sent COORD to 2000
+N1857 {"N1857": 6}
+Received COORD from 1856
+N1857 {"N1856": 7, "N1857": 7}

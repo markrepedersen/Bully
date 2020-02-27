@@ -1,0 +1,5 @@
+We used shiviz to debug an issue with our bully algorithm. The scenario in our log file is as follows:
+
+	* There are two nodes - the lower ID node (1856) starts first, calls an election. It receives no responses since it is the only node alive, and thus deems itself the coordinator, sending COORDs to all other nodes.
+	* The second, higher ID node (1657) starts, and calls an election. Again, since no nodes that have a higher ID are alive, the new node deems itself the coordinator, and sends COORDs to all the other nodes.
+	* Here is where the bug is encountered. Node 1856
