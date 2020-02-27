@@ -239,7 +239,7 @@ int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
   char *mType = printMessageType(ntohl(msg->msgID));
   uint16_t targetPort = ntohs(sockAddr->sin_port);
   logEvent("Sent %s to %u", mType, targetPort);
-  printf("[%d] Sent %s (%d/%lu b) to '%s:%d'\n", msg->electionID, mType,
+  printf("[%d] Sent %s (%d/%lu b) to '%s:%d'\n", ntohl(msg->electionID), mType,
          bytesSent, sizeof(*msg), inet_ntoa(sockAddr->sin_addr), targetPort);
   if (bytesSent != sizeof(*msg)) {
     perror("UDP send failed");
