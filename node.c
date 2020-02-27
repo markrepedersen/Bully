@@ -406,6 +406,11 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
       node.id = htons(client->sin_port);
       sendElectionAnswerMessage(&node, node.id);
       sendElectToHigherOrderNodes(message->electionID);
+    } else if (message->msgID == AYA) {
+      Node node;
+      node.hostname = inet_ntoa(client->sin_addr);
+      node.id = htons(client->sin_port);
+      sendMessageWithType(&node, node.id, IAA);
     } else if (message->msgID == COORD) {
       return -1;
     }
@@ -421,15 +426,15 @@ void coordinate() {
   // Wait for any AYA messages.
   int result = receiveMessage(&response, &client, 0);
 
-  if (result >= 0) {
-    // If received an AYA, send back an IAA.
-    if (response.msgID == AYA) {
-      Node node;
-      node.hostname = inet_ntoa(client.sin_addr);
-      node.id = htons(client.sin_port);
-      sendMessageWithType(&node, node.id, IAA);
-    }
-  }
+  // if (result >= 0) {
+  //   // If received an AYA, send back an IAA.
+  //   if (response.msgID == AYA) {
+  //     Node node;
+  //     node.hostname = inet_ntoa(client.sin_addr);
+  //     node.id = htons(client.sin_port);
+  //     sendMessageWithType(&node, node.id, IAA);
+  //   }
+  // }
 }
 
 void resetTimer() {
@@ -580,7 +585,7 @@ int main(int argc, char **argv) {
   while (1) {
     if (!isCoord) {
       message msg;
-      
+
       if (addrInfo) {
         freeaddrinfo(addrInfo);
       }
