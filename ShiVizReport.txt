@@ -1,5 +1,7 @@
-We used shiviz to debug an issue with our bully algorithm. The scenario in our log file is as follows:
+We used shiviz to debug an issue with our bully algorithm. The following illustrates the scenario that causes the bug to occur:
 
 	* There are two nodes - the lower ID node (1856) starts first, calls an election. It receives no responses since it is the only node alive, and thus deems itself the coordinator, sending COORDs to all other nodes.
 	* The second, higher ID node (1657) starts, and calls an election. Again, since no nodes that have a higher ID are alive, the new node deems itself the coordinator, and sends COORDs to all the other nodes.
-	* Here is where the bug is encountered. Node 1856
+	* Here is where the bug is encountered. Node 1856 is receiving the COORD message sent by node 1857, but it is not switching over to becoming a regular node again. Instead, it stays as a coordinator and does nothing, waiting for more AYA requests.
+
+We chose this scenario because it illustrates a bug in our code. Usually, nodes that are not the coordinator, when receiving a COORD message, honor the message, and start monitoring the new coordinator. However, we have a bug in which current coordinators do not honor the message despite receiving it, and stay as coordinators, resulting in us having more than one coordinator at the same time.
