@@ -579,8 +579,10 @@ int main(int argc, char **argv) {
   while (1) {
     if (!isCoord) {
       message msg;
-      if (addrInfo)
+      if (addrInfo) {
         freeaddrinfo(addrInfo);
+      }
+
       addrInfo = getAddress(&coord, &sockAddr);
       getAddress(&coord, &sockAddr);
 
@@ -599,6 +601,6 @@ int main(int argc, char **argv) {
     } else {
       coordinate();
     }
-    fclose(logFile);
   }
+  fclose(logFile);
 }
