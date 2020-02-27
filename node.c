@@ -312,6 +312,11 @@ int receiveElectionAnswers() {
   }
 }
 
+void setCoord(struct sockaddr_in *client) {
+  coord.hostname = inet_ntoa(client->sin_addr);
+  coord.id = htons(client->sin_port);
+}
+
 // Return whether a COORD response was received or not.
 int receiveCoordResponse() {
   struct sockaddr_in client;
@@ -320,8 +325,7 @@ int receiveCoordResponse() {
   while (1) {
     int response = receiveMessage(&msg, &client, 0);
     if (msg.msgID == COORD) {
-      coord.hostname = inet_ntoa(client.sin_addr);
-      coord.id = htons(client.sin_port);
+      setCoord(&client);
       return 1;
     }
     if (response < 0) {
@@ -406,35 +410,33 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
       node.id = htons(client->sin_port);
       sendElectionAnswerMessage(&node, node.id);
       sendElectToHigherOrderNodes(message->electionID);
-    } else if (message->msgID == AYA) {
-      Node node;
-      node.hostname = inet_ntoa(client->sin_addr);
-      node.id = htons(client->sin_port);
-      sendMessageWithType(&node, node.id, IAA);
-    } else if (message->msgID == COORD) {
-      return -1;
     }
   }
 
   return 0;
 }
 
-void coordinate() {
+int coordinate() {
   message response;
   struct sockaddr_in client;
 
-  // Wait for any AYA messages.
   int result = receiveMessage(&response, &client, 0);
 
-  // if (result >= 0) {
-  //   // If received an AYA, send back an IAA.
-  //   if (response.msgID == AYA) {
-  //     Node node;
-  //     node.hostname = inet_ntoa(client.sin_addr);
-  //     node.id = htons(client.sin_port);
-  //     sendMessageWithType(&node, node.id, IAA);
-  //   }
-  // }
+  if (result >= 0) {
+    // If received an AYA, send back an IAA.
+    if (response.msgID == AYA) {
+      Node node;
+      node.hostname = inet_ntoa(client.sin_addr);
+      node.id = htons(client.sin_port);
+      sendMessageWithType(&node, node.id, IAA);
+    }
+    
+    if (response.msgID == COORD) {
+      isCoord = 0;
+      setCoord(&client);
+    }
+  }
+  return 0;
 }
 
 void resetTimer() {
@@ -478,11 +480,11 @@ int sendAYA(message *msg, Node *node, struct sockaddr_in *sockAddr) {
 }
 
 void updateTimer() {
-          currentTime = clock();
-      ms = currentTime - startTime;
-      s = (ms / (CLOCKS_PER_SEC)) - (mins * 60);
-      mins = (ms / (CLOCKS_PER_SEC)) / 60;
-      timeLeft = countDownTimeInSeconds - s;
+  currentTime = clock();
+  ms = currentTime - startTime;
+  s = (ms / (CLOCKS_PER_SEC)) - (mins * 60);
+  mins = (ms / (CLOCKS_PER_SEC)) / 60;
+  timeLeft = countDownTimeInSeconds - s;
 }
 
 int main(int argc, char **argv) {
@@ -584,6 +586,8 @@ int main(int argc, char **argv) {
   struct sockaddr_in *sockAddr = NULL;
   message response;
 
+  sleep(timeoutValue);
+
   // This node is new - start an election to determine the coordinator.
   election();
 
@@ -605,13 +609,13 @@ int main(int argc, char **argv) {
       receiveMessage(&msg, sockAddr, 1);
 
       if (isFailedElection) {
-	  election();
+        election();
       }
 
       if (timeLeft == 0 && sendAYA(&msg, &coord, sockAddr) < 0) {
         election();
       }
-      
+
       updateTimer();
     } else {
       coordinate();
