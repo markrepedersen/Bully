@@ -374,7 +374,6 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
   if (!block && n < 0) {
     // Timeout occurred.
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      perror("Timeout occurred.");
       return -1;
     } else {
       perror("Receiving error");
@@ -579,6 +578,7 @@ int main(int argc, char **argv) {
   while (1) {
     if (!isCoord) {
       message msg;
+      
       if (addrInfo) {
         freeaddrinfo(addrInfo);
       }
