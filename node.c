@@ -38,14 +38,15 @@ static FILE *logFile;
 static vectorClock nodeTimes[MAX_NODES];
 static int isCoord = 0;
 
-void mergeClocks(vectorClock* other) {
+void mergeClocks(vectorClock *other) {
   for (int i = 0; i < MAX_NODES; ++i) {
     if (i == myIndex) {
       if (other[i].time > nodeTimes[i].time) {
         printf("Received message where local time is greater than current.\n");
       }
     } else {
-      nodeTimes[i].time = other[i].time > nodeTimes[i].time ? other[i].time : nodeTimes[i].time;
+      nodeTimes[i].time =
+          other[i].time > nodeTimes[i].time ? other[i].time : nodeTimes[i].time;
     }
   }
 }
@@ -209,7 +210,7 @@ unsigned long getRandomNumber() {
   return rn % (2 * AYATime);
 }
 
-struct addrinfo* getAddress(Node *node, struct sockaddr_in **sockAddr) {
+struct addrinfo *getAddress(Node *node, struct sockaddr_in **sockAddr) {
   char portBuf[10];
   struct addrinfo hints, *res, *feed_server;
 
@@ -235,12 +236,11 @@ int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
       sendto(sockfd, msg, sizeof(*msg), 0, (struct sockaddr *)sockAddr,
              sizeof(struct sockaddr_in));
 
-  char* mType = printMessageType(ntohl(msg->msgID));
+  char *mType = printMessageType(ntohl(msg->msgID));
   uint16_t targetPort = ntohs(sockAddr->sin_port);
   logEvent("Sent %s to %u", mType, targetPort);
-  printf("[%d] Sent %s (%d/%lu b) to '%s:%d'\n", msg->electionID,
-         mType, bytesSent, sizeof(*msg),
-         inet_ntoa(sockAddr->sin_addr), targetPort);
+  printf("[%d] Sent %s (%d/%lu b) to '%s:%d'\n", msg->electionID, mType,
+         bytesSent, sizeof(*msg), inet_ntoa(sockAddr->sin_addr), targetPort);
   if (bytesSent != sizeof(*msg)) {
     perror("UDP send failed");
     return -1;
@@ -253,7 +253,8 @@ int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
 // The times will change once messages start being received.
 void initVectorClock(vectorClock *nodeTimes, int numClocks, Node *node) {
   for (int i = 0; i < numClocks; i++) {
-    if (node == NULL) return;
+    if (node == NULL)
+      return;
     nodeTimes[i].nodeId = node->id;
     nodeTimes[i].time = 0;
     node = node->next;
@@ -268,8 +269,8 @@ void createMessage(message *msg, unsigned long electionId, msgType type) {
   msg->electionID = htonl(msg->electionID);
   msg->msgID = htonl(msg->msgID);
   for (int i = 0; i < MAX_NODES; ++i) {
-      msg->vectorClock[0].nodeId = htonl(msg->vectorClock[0].nodeId);
-      msg->vectorClock[0].time = htonl(msg->vectorClock[0].time);
+    msg->vectorClock[0].nodeId = htonl(msg->vectorClock[0].nodeId);
+    msg->vectorClock[0].time = htonl(msg->vectorClock[0].time);
   }
 }
 
@@ -277,7 +278,7 @@ void sendMessageWithType(Node *node, unsigned long electionId, msgType type) {
   message msg;
   struct sockaddr_in *sockAddr = NULL;
 
-  struct addrinfo* addrInfo = getAddress(node, &sockAddr);
+  struct addrinfo *addrInfo = getAddress(node, &sockAddr);
   createMessage(&msg, electionId, type);
   sendMessage(&msg, sockAddr);
   freeaddrinfo(addrInfo);
@@ -382,33 +383,32 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
   }
 
   if (n > 0) {
-      // Convert back to host order.
-      message->electionID = ntohl(message->electionID);
-      message->msgID = ntohl(message->msgID);
-  
-      for (int i = 0; i < MAX_NODES; ++i) {
-	  message->vectorClock[0].nodeId = ntohl(message->vectorClock[0].nodeId);
-	  message->vectorClock[0].time = ntohl(message->vectorClock[0].time);
-      }
+    // Convert back to host order.
+    message->electionID = ntohl(message->electionID);
+    message->msgID = ntohl(message->msgID);
 
-      mergeClocks(message->vectorClock);
-      char* mType = printMessageType(message->msgID);
-      uint16_t senderPort = ntohs(client->sin_port);
-      logEvent("Received %s from %u", mType, senderPort);
-      printf("[%d] Received %s from %s:%d\n", message->electionID,
-	     mType, inet_ntoa(client->sin_addr),
-	     senderPort);
+    for (int i = 0; i < MAX_NODES; ++i) {
+      message->vectorClock[0].nodeId = ntohl(message->vectorClock[0].nodeId);
+      message->vectorClock[0].time = ntohl(message->vectorClock[0].time);
+    }
 
-      // Always respond to ELECT messages.
-      if (message->msgID == ELECT) {
-	  Node node;
-	  node.hostname = inet_ntoa(client->sin_addr);
-	  node.id = htons(client->sin_port);
-	  sendElectionAnswerMessage(&node, node.id);
-	  sendElectToHigherOrderNodes(message->electionID);
-      } else if (message->msgID == COORD) {
-	  return -1;
-      }
+    mergeClocks(message->vectorClock);
+    char *mType = printMessageType(message->msgID);
+    uint16_t senderPort = ntohs(client->sin_port);
+    logEvent("Received %s from %u", mType, senderPort);
+    printf("[%d] Received %s from %s:%d\n", message->electionID, mType,
+           inet_ntoa(client->sin_addr), senderPort);
+
+    // Always respond to ELECT messages.
+    if (message->msgID == ELECT) {
+      Node node;
+      node.hostname = inet_ntoa(client->sin_addr);
+      node.id = htons(client->sin_port);
+      sendElectionAnswerMessage(&node, node.id);
+      sendElectToHigherOrderNodes(message->electionID);
+    } else if (message->msgID == COORD) {
+      return -1;
+    }
   }
 
   return 0;
@@ -574,14 +574,14 @@ int main(int argc, char **argv) {
   election();
 
   startTime = clock();
-  struct addrinfo* addrInfo = NULL;
+  struct addrinfo *addrInfo = NULL;
 
   while (1) {
     if (!isCoord) {
       message msg;
-        if (addrInfo) freeaddrinfo(addrInfo);
-        addrInfo = getAddress(&coord, &sockAddr);
-      }
+      if (addrInfo)
+        freeaddrinfo(addrInfo);
+      addrInfo = getAddress(&coord, &sockAddr);
       getAddress(&coord, &sockAddr);
 
       // Non-blocking receive to respond to any new elections.
@@ -599,5 +599,6 @@ int main(int argc, char **argv) {
     } else {
       coordinate();
     }
-  fclose(logFile);
+    fclose(logFile);
+  }
 }
