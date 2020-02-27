@@ -410,6 +410,16 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
       node.id = htons(client->sin_port);
       sendElectionAnswerMessage(&node, node.id);
       sendElectToHigherOrderNodes(message->electionID);
+      return ELECT;
+    } else if (message->msgID == COORD) {
+      isCoord = 0;
+      setCoord(client);
+      return COORD;
+    } else if (isCoord && message->msgID == AYA) {
+      Node node;
+      node.hostname = inet_ntoa(client->sin_addr);
+      node.id = htons(client->sin_port);
+      sendMessageWithType(&node, node.id, IAA);
     }
   }
 
@@ -420,27 +430,12 @@ int coordinate() {
   message response;
   struct sockaddr_in client;
 
-  int result = receiveMessage(&response, &client, 0);
-
-  if (result >= 0) {
-    // If received an AYA, send back an IAA.
-    if (response.msgID == AYA) {
-      Node node;
-      node.hostname = inet_ntoa(client.sin_addr);
-      node.id = htons(client.sin_port);
-      sendMessageWithType(&node, node.id, IAA);
-    }
-    
-    if (response.msgID == COORD) {
-      isCoord = 0;
-      setCoord(&client);
-    }
-  }
+  receiveMessage(&response, &client, 0);
   return 0;
 }
 
-void resetTimer() {
-  countDownTimeInSeconds = getRandomNumber();
+void resetTimer(int seed) {
+  countDownTimeInSeconds = seed;
   startTime = clock();
   ms = 0;
   s = 0;
@@ -470,7 +465,7 @@ int receiveIAA() {
       return -1;
     }
   }
-  resetTimer();
+  resetTimer(getRandomNumber());
   return 0;
 }
 
@@ -485,6 +480,15 @@ void updateTimer() {
   s = (ms / (CLOCKS_PER_SEC)) - (mins * 60);
   mins = (ms / (CLOCKS_PER_SEC)) / 60;
   timeLeft = countDownTimeInSeconds - s;
+}
+
+void initLogFile(char *logFileName) {
+  logFile = fopen(logFileName, "w+");
+  if (logFile == NULL) {
+    perror("Log file error: ");
+    exit(EXIT_FAILURE);
+  }
+  logEvent("Starting node %lu", myNode.id);
 }
 
 int main(int argc, char **argv) {
@@ -571,33 +575,22 @@ int main(int argc, char **argv) {
     currentNode = currentNode->next;
   }
 
+  resetTimer(getRandomNumber());
   initVectorClock(nodeTimes, MAX_NODES, nodes);
   initServer();
+  initLogFile(logFileName);
   setSocketTimeout(sockfd, timeoutValue);
 
-  // Initialize log file
-  logFile = fopen(logFileName, "w+");
-  if (logFile == NULL) {
-    perror("Log file error: ");
-    exit(EXIT_FAILURE);
-  }
-  logEvent("Starting node %lu", myNode.id);
-
-  struct sockaddr_in *sockAddr = NULL;
-  message response;
-
-  sleep(timeoutValue);
-
-  // This node is new - start an election to determine the coordinator.
-  election();
-
-  startTime = clock();
+  struct sockaddr_in *sockAddr = NULL, dummy;
   struct addrinfo *addrInfo = NULL;
+  message msg;
+
+  if (receiveMessage(&msg, &dummy, 0) <= 0) {
+    election();
+  }
 
   while (1) {
     if (!isCoord) {
-      message msg;
-
       if (addrInfo) {
         freeaddrinfo(addrInfo);
       }
