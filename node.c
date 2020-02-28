@@ -489,13 +489,13 @@ void initHostName() {
 }
 
 void init(unsigned long port) {
+  initGroupList();
+  initPort(port);
+  initHostName();
   resetTimer(getRandomNumber());
   initVectorClock(nodeTimes, MAX_NODES, nodes);
   initServer();
   initLogFile(logFileName);
-  initHostName();
-  initPort(port);
-  initGroupList();
   setSocketTimeout(sockfd, timeoutValue);
 }
 
