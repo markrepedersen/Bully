@@ -1,45 +1,5 @@
 #include "node.h"
 
-// The purpose of this file is to provide insight into how to make various
-// library calls to perfom some of the key functions required by the
-// application. You are free to completely ignore anything in this file and do
-// things whatever way you want provided it conforms with the assignment
-// specifications. Note: this file compiles and works on the deparment servers
-// running Linux. If you work in a different environment your mileage may vary.
-// Remember that whatever you do the final program must run on the department
-// Linux machines.
-
-typedef struct node {
-  unsigned long id;
-  char *hostname;
-  struct node *next;
-  struct node *prev;
-} Node;
-
-typedef struct coordinator {
-  unsigned long port;
-  char *hostname;
-} Coordinator;
-
-static int isOngoingElection = 0;
-static int isFailedElection = 0;
-static unsigned long AYATime;
-static clock_t startTime;
-static unsigned int mins = 0;
-static unsigned int s = 0;
-static unsigned int ms = 0;
-static unsigned int timeLeft = 0;
-static clock_t currentTime;
-static unsigned long countDownTimeInSeconds = 0;
-static int sockfd;
-static Node *nodes = NULL;
-static Node myNode = (Node){0};
-static Node coord = (Node){0};
-static int myIndex;
-static FILE *logFile;
-static vectorClock nodeTimes[MAX_NODES];
-static int isCoord = 0;
-
 void mergeClocks(vectorClock *other) {
   for (int i = 0; i < MAX_NODES; ++i) {
     if (i == myIndex) {
@@ -301,13 +261,12 @@ void sendCoordinatorMessage(Node *node, unsigned long electionId) {
 // Return the number of answers received.
 int receiveElectionAnswers() {
   struct sockaddr_in client;
-  message msg;
-
   while (1) {
-    if (receiveMessage(&msg, &client, 0) < 0) {
+    int response = receiveMessage(&client, 0);
+    if (response < 0) {
       return 0;
     }
-    if (msg.msgID == ANSWER) {
+    if (response == ANSWER) {
       return 1;
     }
   }
@@ -321,11 +280,9 @@ void setCoord(struct sockaddr_in *client) {
 // Return whether a COORD response was received or not.
 int receiveCoordResponse() {
   struct sockaddr_in client;
-  message msg;
-
   while (1) {
-    int response = receiveMessage(&msg, &client, 0);
-    if (msg.msgID == COORD) {
+    int response = receiveMessage(&client, 0);
+    if (response == COORD) {
       setCoord(&client);
       return 1;
     }
@@ -371,10 +328,11 @@ int sendElectToHigherOrderNodes(unsigned long electionId) {
   return isCoord;
 }
 
-int receiveMessage(message *message, struct sockaddr_in *client, int block) {
+int receiveMessage(struct sockaddr_in *client, int block) {
+  message message;
   socklen_t len = sizeof(*client);
   int isBlocking = block == 1 ? MSG_DONTWAIT : MSG_WAITALL;
-  int n = recvfrom(sockfd, message, sizeof(*message), isBlocking,
+  int n = recvfrom(sockfd, &message, sizeof(message), isBlocking,
                    (struct sockaddr *)client, &len);
 
   if (!block && n < 0) {
@@ -389,38 +347,42 @@ int receiveMessage(message *message, struct sockaddr_in *client, int block) {
 
   if (n > 0) {
     // Convert back to host order.
-    message->electionID = ntohl(message->electionID);
-    message->msgID = ntohl(message->msgID);
+    message.electionID = ntohl(message.electionID);
+    message.msgID = ntohl(message.msgID);
 
     for (int i = 0; i < MAX_NODES; ++i) {
-      message->vectorClock[0].nodeId = ntohl(message->vectorClock[0].nodeId);
-      message->vectorClock[0].time = ntohl(message->vectorClock[0].time);
+      message.vectorClock[0].nodeId = ntohl(message.vectorClock[0].nodeId);
+      message.vectorClock[0].time = ntohl(message.vectorClock[0].time);
     }
 
-    mergeClocks(message->vectorClock);
-    char *mType = printMessageType(message->msgID);
+    mergeClocks(message.vectorClock);
+    char *mType = printMessageType(message.msgID);
     uint16_t senderPort = ntohs(client->sin_port);
     logEvent("Received %s from %u", mType, senderPort);
-    printf("[%d] Received %s from %s:%d\n", message->electionID, mType,
+    printf("[%d] Received %s from %s:%d\n", message.electionID, mType,
            inet_ntoa(client->sin_addr), senderPort);
 
-    // Always respond to ELECT messages (unless another election is ongoing, in which case keep yours, cancel other).
-    if (message->msgID == ELECT) {
+    // Always respond to ELECT messages (unless another election is ongoing, in
+    // which case keep yours, cancel other).
+    if (message.msgID == ELECT) {
       if (!isOngoingElection) {
         Node node;
         node.hostname = inet_ntoa(client->sin_addr);
         node.id = htons(client->sin_port);
         sendElectionAnswerMessage(&node, node.id);
-        sendElectToHigherOrderNodes(message->electionID);
+        sendElectToHigherOrderNodes(message.electionID);
       }
       return ELECT;
-    } else if (isCoord && message->msgID == AYA) {
+    } else if (isCoord && message.msgID == AYA) {
       Node node;
       node.hostname = inet_ntoa(client->sin_addr);
       node.id = htons(client->sin_port);
       sendMessageWithType(&node, node.id, IAA);
-    } else if (message->msgID == COORD) {
+    } else if (message.msgID == COORD) {
       return COORD;
+    } else if (message.msgID == IAA) {
+      resetTimer(getRandomNumber());
+      return IAA;
     }
   }
 
@@ -431,7 +393,7 @@ int coordinate() {
   message response;
   struct sockaddr_in client;
 
-  int messageType = receiveMessage(&response, &client, 0);
+  int messageType = receiveMessage(&client, 0);
   if (messageType == COORD) {
     election();
   }
@@ -465,17 +427,17 @@ int getTime() {
 
 int receiveIAA() {
   struct sockaddr_in client;
-  message msg;
-  while (msg.msgID != IAA) {
-    if (receiveMessage(&msg, &client, 0) == -1) {
+  while (1) {
+    int response = receiveMessage(&client, 0);
+    if (response == -1) {
       return -1;
+    } else if (response == IAA) {
+      return 0;
     }
   }
-  resetTimer(getRandomNumber());
-  return 0;
 }
 
-int sendAYA(message *msg, Node *node, struct sockaddr_in *sockAddr) {
+int sendAYA(Node *node, struct sockaddr_in *sockAddr) {
   sendMessageWithType(node, node->id, AYA);
   return receiveIAA();
 }
@@ -497,29 +459,56 @@ void initLogFile(char *logFileName) {
   logEvent("Starting node %lu", myNode.id);
 }
 
-int main(int argc, char **argv) {
-  // If you want to produce a repeatable sequence of "random" numbers
-  // replace the call to  time() with an integer.
-  srandom(time(0));
+void initGroupList() {
+  if (strcmp(groupListFileName, "-") == 0) {
+    // Group list will be specified by stdin.
+    printf("Group list specified by command line.\n");
+  } else {
+    // Process group list file
+    nodes = readGroupListFile(groupListFileName);
+  }
+}
 
-  char *groupListFileName;
-  char *logFileName;
-  unsigned long timeoutValue;
+void initPort(unsigned long port) {
+  myNode.id = port;
+  int isValidPort = validatePort(nodes, myNode.id);
+  if (isValidPort == -1) {
+    printf("Invalid port: %lu", myNode.id);
+    exit(EXIT_FAILURE);
+  }
+}
 
+void initHostName() {
+  Node *currentNode = nodes;
+  while (currentNode != NULL) {
+    if (currentNode->id == myNode.id) {
+      myNode.hostname = currentNode->hostname;
+    }
+    currentNode = currentNode->next;
+  }
+}
+
+void init(unsigned long port) {
+  resetTimer(getRandomNumber());
+  initVectorClock(nodeTimes, MAX_NODES, nodes);
+  initServer();
+  initLogFile(logFileName);
+  initHostName();
+  initPort(port);
+  initGroupList();
+  setSocketTimeout(sockfd, timeoutValue);
+}
+
+void processArgs(int argc, char **argv) {
   unsigned long sendFailureProbability;
   if (argc != 7) {
     usage(argv[0]);
-    return -1;
+    exit(EXIT_FAILURE);
   }
-
-  // Some code illustrating how to parse command line arguments.
-  // This cod will probably have to be changed to match how you
-  // decide to do things.
 
   char *end;
   int err = 0;
 
-  myNode.id = strtoul(argv[1], &end, 10);
   if (argv[1] == end) {
     printf("Port conversion error\n");
     err++;
@@ -556,68 +545,45 @@ int main(int argc, char **argv) {
   if (err) {
     printf("%d conversion error%sencountered, program exiting.\n", err,
            err > 1 ? "s were " : " was ");
-    return -1;
-  }
-
-  if (strcmp(groupListFileName, "-") == 0) {
-    // Group list will be specified by stdin.
-    printf("Group list specified by command line.\n");
-  } else {
-    // Process group list file
-    nodes = readGroupListFile(groupListFileName);
-  }
-
-  int isValidPort = validatePort(nodes, myNode.id);
-  if (isValidPort == -1) {
-    printf("Invalid port: %lu", myNode.id);
     exit(EXIT_FAILURE);
   }
 
-  Node *currentNode = nodes;
-  while (currentNode != NULL) {
-    if (currentNode->id == myNode.id) {
-      myNode.hostname = currentNode->hostname;
-    }
-    currentNode = currentNode->next;
-  }
+  init(strtoul(argv[1], &end, 10));
+}
 
-  resetTimer(getRandomNumber());
-  initVectorClock(nodeTimes, MAX_NODES, nodes);
-  initServer();
-  initLogFile(logFileName);
-  setSocketTimeout(sockfd, timeoutValue);
+void eventLoop(struct addrinfo *addrInfo, struct sockaddr_in *sockAddr) {
+  if (!isCoord) {
+    if (addrInfo) {
+      freeaddrinfo(addrInfo);
+    }
+    addrInfo = getAddress(&coord, &sockAddr);
+    receiveMessage(sockAddr, 1);
+    if (isFailedElection) {
+      election();
+    }
+    if (timeLeft == 0 && sendAYA(&coord, sockAddr) < 0) {
+      election();
+    }
+    updateTimer();
+  } else {
+    coordinate();
+  }
+}
+
+int main(int argc, char **argv) {
+  srandom(time(0));
+  processArgs(argc, argv);
 
   struct sockaddr_in *sockAddr = NULL, dummy;
   struct addrinfo *addrInfo = NULL;
-  message msg;
 
-  if (receiveMessage(&msg, &dummy, 0) <= 0) {
+  if (receiveMessage(&dummy, 0) <= 0) {
     election();
   }
 
   while (1) {
-    if (!isCoord) {
-      if (addrInfo) {
-        freeaddrinfo(addrInfo);
-      }
-
-      addrInfo = getAddress(&coord, &sockAddr);
-
-      // Non-blocking receive to respond to any new elections.
-      receiveMessage(&msg, sockAddr, 1);
-
-      if (isFailedElection) {
-        election();
-      }
-
-      if (timeLeft == 0 && sendAYA(&msg, &coord, sockAddr) < 0) {
-        election();
-      }
-
-      updateTimer();
-    } else {
-      coordinate();
-    }
+    eventLoop(addrInfo, sockAddr);
   }
+
   fclose(logFile);
 }
