@@ -366,11 +366,14 @@ int receiveMessage(struct sockaddr_in *client, int block) {
       node.hostname = inet_ntoa(client->sin_addr);
       node.id = htons(client->sin_port);
       sendMessageWithType(&node, node.id, IAA);
+      return AYA;
     } else if (message.msgID == COORD) {
       return COORD;
     } else if (message.msgID == IAA) {
       resetTimer(getRandomNumber());
       return IAA;
+    } else if (message.msgID == ANSWER) {
+	return ANSWER;
     }
   }
 
