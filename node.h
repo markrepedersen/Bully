@@ -24,6 +24,7 @@ typedef struct node {
   struct node *prev;
 } Node;
 
+static unsigned long sendFailureProbability;
 static char *groupListFileName;
 static char *logFileName;
 static unsigned long timeoutValue;
@@ -49,3 +50,4 @@ static int isCoord = 0;
 int receiveMessage(struct sockaddr_in*, int);
 void election();
 void resetTimer(int);
+Node *setNodes(void*);

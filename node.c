@@ -61,7 +61,6 @@ Node *readGroupListFile(char *fileName) {
   char *line = NULL;
   size_t len = 0;
   ssize_t read;
-  Node *prev = NULL, *head = NULL;
 
   fp = fopen(fileName, "r");
   if (fp == NULL) {
@@ -69,34 +68,7 @@ Node *readGroupListFile(char *fileName) {
     exit(EXIT_FAILURE);
   }
 
-  while ((read = getline(&line, &len, fp)) != -1) {
-    char *hostname = strtok(line, " ");
-    if (strcmp(hostname, line) != 0)
-      break;
-
-    char *id = strtok(NULL, " ");
-    if (strtok(NULL, " ") != NULL)
-      break;
-
-    unsigned long nodeId = strtoul(id, NULL, 0);
-    if (nodeId == 0)
-      break;
-
-    Node *curr = malloc(sizeof(Node));
-    curr->id = nodeId;
-    curr->hostname = strdup(hostname);
-    curr->prev = prev;
-    curr->next = NULL;
-
-    if (prev)
-      prev->next = curr;
-    else
-      head = curr;
-    prev = curr;
-    curr = curr->next;
-  }
-
-  return head;
+  return setNodes(fp);
 }
 
 void initServer() {
@@ -193,18 +165,34 @@ struct addrinfo *getAddress(Node *node, struct sockaddr_in **sockAddr) {
   return feed_server;
 }
 
-int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
-  int bytesSent =
-      sendto(sockfd, msg, sizeof(*msg), 0, (struct sockaddr *)sockAddr,
-             sizeof(struct sockaddr_in));
+// Determines if a message should be sent or not (by randomly choosing a
+// number).
+int isMessageSent() {
+  int p = rand() % 100;
+  if (sendFailureProbability == 0) {
+    return 1;
+  } else if (p < sendFailureProbability) {
+      printf("Packet was dropped due to send failure probability = %d\n", p);
+    return 0;
+  } else
+    return 1;
+}
 
-  char *mType = printMessageType(ntohl(msg->msgID));
-  uint16_t targetPort = ntohs(sockAddr->sin_port);
-  printf("[%u] Sent %s (%d/%lu b) to '%s:%d'\n", ntohl(msg->electionID), mType,
-         bytesSent, sizeof(*msg), inet_ntoa(sockAddr->sin_addr), targetPort);
-  if (bytesSent != sizeof(*msg)) {
-    perror("UDP send failed");
-    return -1;
+int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
+  int bytesSent = -1;
+  if (isMessageSent()) {
+    bytesSent = sendto(sockfd, msg, sizeof(*msg), 0,
+                       (struct sockaddr *)sockAddr, sizeof(struct sockaddr_in));
+
+    char *mType = printMessageType(ntohl(msg->msgID));
+    uint16_t targetPort = ntohs(sockAddr->sin_port);
+    printf("[%u] Sent %s (%d/%lu b) to '%s:%d'\n", ntohl(msg->electionID),
+           mType, bytesSent, sizeof(*msg), inet_ntoa(sockAddr->sin_addr),
+           targetPort);
+    if (bytesSent != sizeof(*msg)) {
+      perror("UDP send failed");
+      return -1;
+    }
   }
   return bytesSent;
 }
@@ -459,10 +447,53 @@ void initLogFile(char *logFileName) {
   logEvent("Starting node %lu", myNode.id);
 }
 
+Node *setNodes(void *fp) {
+  char *line = NULL;
+  size_t len;
+  ssize_t read;
+  Node *prev = NULL, *head = NULL;
+
+  while ((read = getline(&line, &len, fp)) != -1) {
+    char *hostname = strtok(line, " ");
+
+    if (strcmp(hostname, line) != 0) {
+      break;
+    }
+
+    char *id = strtok(NULL, " ");
+
+    if (strtok(NULL, " ") != NULL) {
+      break;
+    }
+
+    unsigned long nodeId = strtoul(id, NULL, 0);
+    if (nodeId == 0) {
+      break;
+    }
+
+    Node *curr = malloc(sizeof(Node));
+    curr->id = nodeId;
+    curr->hostname = strdup(hostname);
+    curr->prev = prev;
+    curr->next = NULL;
+
+    if (prev) {
+      prev->next = curr;
+    } else {
+      head = curr;
+    }
+    prev = curr;
+    curr = curr->next;
+  }
+
+  return head;
+}
+
+Node *readGroupFromStdin() { return setNodes(stdin); }
+
 void initGroupList() {
   if (strcmp(groupListFileName, "-") == 0) {
-    // Group list will be specified by stdin.
-    printf("Group list specified by command line.\n");
+    nodes = readGroupFromStdin();
   } else {
     // Process group list file
     nodes = readGroupListFile(groupListFileName);
@@ -500,7 +531,6 @@ void init(unsigned long port) {
 }
 
 void processArgs(int argc, char **argv) {
-  unsigned long sendFailureProbability;
   if (argc != 7) {
     usage(argv[0]);
     exit(EXIT_FAILURE);
