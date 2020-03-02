@@ -316,6 +316,16 @@ int sendElectToHigherOrderNodes(unsigned long electionId) {
   return isCoord;
 }
 
+int validateNode(struct sockaddr_in *client) {
+  int nodePort = htons(client->sin_port);
+  Node* curr = nodes;
+  while (curr) {
+    if (curr->id == nodePort) return 1;
+    curr = curr->next;
+  }
+  return 0;
+}
+
 int receiveMessage(struct sockaddr_in *client, int block) {
   message message;
   socklen_t len = sizeof(*client);
@@ -343,12 +353,17 @@ int receiveMessage(struct sockaddr_in *client, int block) {
       message.vectorClock[0].time = ntohl(message.vectorClock[0].time);
     }
 
-    mergeClocks(message.vectorClock);
     char *mType = printMessageType(message.msgID);
     uint16_t senderPort = ntohs(client->sin_port);
-    logEvent("Received %s from %u", mType, senderPort);
     printf("[%d] Received %s from %s:%d\n", message.electionID, mType,
            inet_ntoa(client->sin_addr), senderPort);
+    if (!validateNode(client)) {
+      logEvent("Received and ignored %s from invalid node %u", mType, senderPort);
+      return 0;
+    } else {
+      mergeClocks(message.vectorClock);
+      logEvent("Received %s from %u", mType, senderPort);
+    }
 
     // Always respond to ELECT messages (unless another election is ongoing, in
     // which case keep yours, cancel other).
@@ -383,7 +398,12 @@ int coordinate() {
 
   int messageType = receiveMessage(&client, 0);
   if (messageType == COORD) {
-    election();
+    if (ntohs(client.sin_port) > myNode.id) {
+      isCoord = 0;
+      setCoord(&client);
+    } else {
+      election();
+    }
   }
   return 0;
 }
@@ -591,7 +611,7 @@ void eventLoop(struct addrinfo *addrInfo, struct sockaddr_in *sockAddr) {
     if (isFailedElection) {
       election();
     }
-    if (timeLeft == 0 && sendAYA(&coord, sockAddr) < 0) {
+    if (timeLeft <= 0 && sendAYA(&coord, sockAddr) < 0) {
       election();
     }
     updateTimer();
