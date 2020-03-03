@@ -1,14 +1,14 @@
 #include "node.h"
 #include "limits.h"
 
-int cmpClock(vectorClock* a, vectorClock* b) {
+int cmpClock(vectorClock *a, vectorClock *b) {
   const int aPort = a->nodeId == 0 ? USHRT_MAX + 1 : a->nodeId;
   const int bPort = b->nodeId == 0 ? USHRT_MAX + 1 : b->nodeId;
   return aPort - bPort;
 }
 
 void mergeClocks(vectorClock *other) {
-  qsort(other, MAX_NODES, sizeof(*other), (__compar_fn_t) cmpClock);
+  qsort(other, MAX_NODES, sizeof(*other), cmpClock);
   for (int i = 0; i < MAX_NODES; ++i) {
     if (i == myIndex) {
       if (other[i].time > nodeTimes[i].time) {
@@ -180,7 +180,7 @@ int isMessageSent() {
   if (sendFailureProbability == 0) {
     return 1;
   } else if (p < sendFailureProbability) {
-      printf("Packet was dropped due to send failure probability = %d\n", p);
+    printf("Packet was dropped due to send failure probability = %d\n", p);
     return 0;
   } else
     return 1;
@@ -219,7 +219,7 @@ void initVectorClock(vectorClock *nodeTimes, int numClocks, Node *node) {
       node = node->next;
     }
   }
-  qsort(nodeTimes, MAX_NODES, sizeof(*nodeTimes), (__compar_fn_t) cmpClock);
+  qsort(nodeTimes, MAX_NODES, sizeof(*nodeTimes), cmpClock);
 }
 
 void createMessage(message *msg, unsigned long electionId, msgType type) {
@@ -294,6 +294,7 @@ int receiveCoordResponse() {
 
 // Return whether this node becomes the new coordinator or not.
 int sendElectToHigherOrderNodes(unsigned long electionId) {
+  isOngoingElection = 1;
   isFailedElection = 0;
   isCoord = 0;
   coord = (Node){0};
@@ -325,14 +326,16 @@ int sendElectToHigherOrderNodes(unsigned long electionId) {
     isCoord = 0;
     isFailedElection = !receiveCoordResponse();
   }
+  isOngoingElection = 0;
   return isCoord;
 }
 
 int validateNode(struct sockaddr_in *client) {
   int nodePort = htons(client->sin_port);
-  Node* curr = nodes;
+  Node *curr = nodes;
   while (curr) {
-    if (curr->id == nodePort) return 1;
+    if (curr->id == nodePort)
+      return 1;
     curr = curr->next;
   }
   return 0;
@@ -370,7 +373,8 @@ int receiveMessage(struct sockaddr_in *client, int block) {
     printf("[%d] Received %s from %s:%d\n", message.electionID, mType,
            inet_ntoa(client->sin_addr), senderPort);
     if (!validateNode(client)) {
-      logEvent("Received and ignored %s from invalid node %u", mType, senderPort);
+      logEvent("Received and ignored %s from invalid node %u", mType,
+               senderPort);
       return 0;
     } else {
       mergeClocks(message.vectorClock);
@@ -400,7 +404,7 @@ int receiveMessage(struct sockaddr_in *client, int block) {
       resetTimer(getRandomNumber());
       return IAA;
     } else if (message.msgID == ANSWER) {
-	return ANSWER;
+      return ANSWER;
     }
   }
 
@@ -433,11 +437,9 @@ void resetTimer(int seed) {
 }
 
 void election() {
-  isOngoingElection = 1;
   unsigned long electionId = (unsigned long)rand();
   logEvent("Starting election %u", electionId);
   sendElectToHigherOrderNodes(electionId);
-  isOngoingElection = 0;
 }
 
 int getTime() {
