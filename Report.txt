@@ -1,3 +1,10 @@
+Name: Kristian Thomassen and Clement Thorens
 
-This file is to contain your interoperability report.
+We tested multiple scenarios:
+	- A node starts with a larger ID than all others, and becomes coordinator, as it is the only node. Another node starts up and starts an election. The second node sets the first node as coordinator and they start conversing.
+	- A node with a smaller ID starts up. Another node starts with a larger ID and starts an election. The second node declares itself coordinator and they start conversing.
+	- Nodes not in any of the nodes' group lists start sending messages to nodes in a group. The group nodes ignore these extraneous messages.
+
+Bugs we found:
+	- We immediately got vector clock mismatches when our vector clocks were sent back with incorrect local times. The issue stemmed from the fact that we were not converting each clock in the vector to network order. We corrected the issue by applying the byte order conversion to the whole vector, which caused the issue to go away.
 
