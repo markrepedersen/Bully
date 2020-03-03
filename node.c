@@ -8,7 +8,7 @@ int cmpClock(vectorClock *a, vectorClock *b) {
 }
 
 void mergeClocks(vectorClock *other) {
-  qsort(other, MAX_NODES, sizeof(*other), cmpClock);
+  qsort(other, MAX_NODES, sizeof(*other), (__compar_fn_t) cmpClock);
   for (int i = 0; i < MAX_NODES; ++i) {
     if (i == myIndex) {
       if (other[i].time > nodeTimes[i].time) {
@@ -219,7 +219,7 @@ void initVectorClock(vectorClock *nodeTimes, int numClocks, Node *node) {
       node = node->next;
     }
   }
-  qsort(nodeTimes, MAX_NODES, sizeof(*nodeTimes), cmpClock);
+  qsort(nodeTimes, MAX_NODES, sizeof(*nodeTimes), (__compar_fn_t) cmpClock);
 }
 
 void createMessage(message *msg, unsigned long electionId, msgType type) {
