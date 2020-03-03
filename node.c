@@ -218,8 +218,8 @@ void createMessage(message *msg, unsigned long electionId, msgType type) {
   msg->electionID = htonl(msg->electionID);
   msg->msgID = htonl(msg->msgID);
   for (int i = 0; i < MAX_NODES; ++i) {
-    msg->vectorClock[0].nodeId = htonl(msg->vectorClock[0].nodeId);
-    msg->vectorClock[0].time = htonl(msg->vectorClock[0].time);
+    msg->vectorClock[i].nodeId = htonl(msg->vectorClock[i].nodeId);
+    msg->vectorClock[i].time = htonl(msg->vectorClock[i].time);
   }
 }
 
@@ -349,8 +349,8 @@ int receiveMessage(struct sockaddr_in *client, int block) {
     message.msgID = ntohl(message.msgID);
 
     for (int i = 0; i < MAX_NODES; ++i) {
-      message.vectorClock[0].nodeId = ntohl(message.vectorClock[0].nodeId);
-      message.vectorClock[0].time = ntohl(message.vectorClock[0].time);
+      message.vectorClock[i].nodeId = ntohl(message.vectorClock[i].nodeId);
+      message.vectorClock[i].time = ntohl(message.vectorClock[i].time);
     }
 
     char *mType = printMessageType(message.msgID);
