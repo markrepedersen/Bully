@@ -1,6 +1,14 @@
 #include "node.h"
+#include "limits.h"
+
+int cmpClock(vectorClock* a, vectorClock* b) {
+  const int aPort = a->nodeId == 0 ? USHRT_MAX + 1 : a->nodeId;
+  const int bPort = b->nodeId == 0 ? USHRT_MAX + 1 : b->nodeId;
+  return aPort - bPort;
+}
 
 void mergeClocks(vectorClock *other) {
+  qsort(other, MAX_NODES, sizeof(*other), (__compar_fn_t) cmpClock);
   for (int i = 0; i < MAX_NODES; ++i) {
     if (i == myIndex) {
       if (other[i].time > nodeTimes[i].time) {
@@ -202,12 +210,16 @@ int sendMessage(message *msg, struct sockaddr_in *sockAddr) {
 // The times will change once messages start being received.
 void initVectorClock(vectorClock *nodeTimes, int numClocks, Node *node) {
   for (int i = 0; i < numClocks; i++) {
-    if (node == NULL)
-      return;
-    nodeTimes[i].nodeId = node->id;
-    nodeTimes[i].time = 0;
-    node = node->next;
+    if (node == NULL) {
+      nodeTimes[i].nodeId = 0;
+      nodeTimes[i].time = 0;
+    } else {
+      nodeTimes[i].nodeId = node->id;
+      nodeTimes[i].time = 0;
+      node = node->next;
+    }
   }
+  qsort(nodeTimes, MAX_NODES, sizeof(*nodeTimes), (__compar_fn_t) cmpClock);
 }
 
 void createMessage(message *msg, unsigned long electionId, msgType type) {
