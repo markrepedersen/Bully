@@ -1,0 +1,12 @@
+* Abtract
+An implementation of a distributed network in which a new coordinator new is elected using the bully algorithm.
+
+* Usage
+`test_group_list.txt` is a file containing the IP addresses (or host name) or the nodes in your network.
+
+#+begin_src bash
+make clean
+make 
+# this will list usage params
+./node
+#+end_src
